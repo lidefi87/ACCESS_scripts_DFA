@@ -2,9 +2,9 @@ import os
 import imageio
 
 #Set file path where images are located
-filein = r'C:\Users\ldfierro\Documents\ACCESS\ACCESS_scripts_DFA\Outputs\Figures\Maps\SeasonalSeaIce\IncObservations'
+filein = r'C:\Users\ldfierro\OneDrive - University of Tasmania\ACCESS_Outputs\Figures\Maps\SeasonalSSTAnomaly'
 #Set the file path for the video to be save, include the name of the video and its extension
-fileout = os.path.join(filein, 'VideoSeasonalSeaIce2000-17.gif')
+fileout = os.path.join(filein, 'VideoSeasonalSSTAnomaly_1958-2018.gif')
 
 #Get list of filepaths for all figures to be used in movie
 filenames = os.listdir(filein)
@@ -14,7 +14,8 @@ images = []
 
 #Loop to read all images
 for file in filenames:
-    images.append(imageio.imread(os.path.join(filein, file)))
+    if file.endswith('.png'):
+        images.append(imageio.imread(os.path.join(filein, file)))
 
 #Save video using path specified at the beginning. Each image to be shown for 0.5 seconds
-imageio.mimsave(fileout, images, duration = 0.5)
+imageio.mimsave(fileout, images, duration = 0.75)
