@@ -13,6 +13,7 @@ import geopandas
 import rasterio.plot
 import rioxarray
 from shapely.geometry import mapping, Polygon
+import calendar
 
 ########
 #Defining functions
@@ -172,6 +173,75 @@ def stackData(folder, keyword):
     #Return concatenated data array
     return comb_data
 
+
+########
+#This function corrects year values
+def corrYears(xarray):
+    Months = [calendar.month_abbr[m] for m in xarray.month.values]
+    xarray.coords['season'] = xarray['time'].values[:,0]
+    xarray.coords['month'] = Months
+    
+    
+########
+#This function can be used to combine various data arrays into one
+def getFileList(filein, yrs):
+    '''
+    Inputs:
+    filein - refers to the file path of the folder containing the datasets to be used in calculations.
+    yrs - is a numpy array containing a list of years of interest for calculations.
+      
+    Outputs:
+    Three lists: adv_list, ret_list, and sea_list which contain the list of files containing sea ice advance, retreat and total season duration respectively.
+    '''
+    #List netcdf files containing sea ice seasonality data
+    filelist = os.listdir(filein)
+ 
+    #Extract files for baseline years
+    basefiles = []
+    for i in filelist:
+        for j in yrs:
+            if i[10:14] == str(j):
+                basefiles.append(i)
+    #Remove variables no longer in use
+    del filelist
+
+    #Separate files based on whether they contain information about sea ice advance, retreat or season. Order them alphabetically.
+    adv_list = sorted([i for i in basefiles if 'Adv' in i])
+    ret_list = sorted([i for i in basefiles if 'Ret' in i])
+    sea_list = sorted([i for i in basefiles if 'Dur' in i])
+    #Remove variables no longer in use
+    del basefiles
+    
+    #Return file lists
+    return adv_list, ret_list, sea_list
+
+
+########
+#This function can be used to calculate baseline means or to extract files for any other time period
+def combineData(filepath, filelist, dir_out):
+    '''
+    Inputs:
+    filepath - refers to the file path of the folder containing the netcdf files to be combined into a single data array.
+    filelist - contains the actual names of the netcdf files that will be combined..
+    dir_out - file path of the folder where combined data arrays will be saved
+      
+    Outputs:
+    Three dimensional data array containing all files provided in the filelist input. The data array is saved to the path provided in dir_out and it can also be assigned to a variable.
+    '''
+    #Create variable to hold combined data arrays
+    combData = []
+    #Create loop based on the total length of filelist
+    for i in np.arange(0, len(filelist)):
+        #Open data array
+        x = xr.open_dataarray(os.path.join(filepath, filelist[i]), autoclose = True)
+        #Put all files in one variable
+        combData.append(x)
+        
+    #Create one data array with the data contained in the combined variable
+    combined = xr.concat(combData, dim = 'time')
+    combined.to_netcdf(os.path.join(dir_out, (filelist[0][0:15]+filelist[-1][15:19]+'.nc')))
+    return combined
+    
 ########
 def main(inargs):
     '''Run the program.'''
