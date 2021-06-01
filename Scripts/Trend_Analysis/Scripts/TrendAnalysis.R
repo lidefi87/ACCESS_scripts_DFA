@@ -22,9 +22,10 @@ for(i in filelist){
 }
 
 Atl_MLD <- read.csv(filelist[1])
-EP_MLD <- read.csv(filelist[2])
-Ind_MLD <- read.csv(filelist[3])
-WP_MLD <- read.csv(filelist[4])
+CentInd_MLD <- read.csv(filelist[2])
+EastInd_MLD <- read.csv(filelist[3])
+EP_MLD <- read.csv(filelist[4])
+WP_MLD <- read.csv(filelist[5])
 
 #Months into which data will be divided
 months1 <- month.abb[5:9]
@@ -32,7 +33,11 @@ months2 <- month.abb[10:12]
 months3 <- month.abb[1:4]
 
 
-data <- Atl_MLD %>% 
+# data <- Atl_MLD %>% 
+# data <- CentInd_MLD %>% 
+# data <- EastInd_MLD %>% 
+# data <- EP_MLD %>% 
+data <- WP_MLD %>% 
   rename("MLD" = "X0") %>% 
   mutate(month = month.abb[month]) %>% 
   filter(month %in% months1) %>% 
@@ -84,18 +89,28 @@ lines(SLA~obs,data=data_SLA.AR1, lwd=1,col="chartreuse")
 
 points(MLD~obs,data=data_season,pch=19,cex=0.8,col="chocolate1")
 
-legend(10, 50,c("Linear regression (LM)","Moving Block LM","Autoregressive (AR1)"), lwd=c(1,1,1),
+legend(1, 70,c("Linear regression (LM)","Moving Block LM","Autoregressive (AR1)"), lwd=c(1,1,1),
        col=c("dodgerblue4","chocolate1","chartreuse"), y.intersp=0.8,box.lty=0,bg="transparent",cex=0.8)
 
-text(97,35, paste0("p-value = ", round(coef_LM[2,4], 3)),cex=0.8)
+text(40,42, paste0("p-value = ", round(coef_LM[2,4], 3)),cex=0.8)
 # text(97,35, "p-value < 0.001", cex=0.8)
-text(97,22, paste0("p-value = ", round(coef_LM_season[2,4], 3)),cex=0.8)
+text(40,20, paste0("p-value = ", round(coef_LM_season[2,4], 3)),cex=0.8)
 # text(97,22, "p-value < 0.001", cex=0.8)
-text(97,9, paste0("p-value = ", round(coeff_AR1[2,4], 3)),cex=0.8)
-text(200, 40, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
-                     round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
-title("1965-2018 MLD timeseries Atlantic Sector (May-Sep) with fits and estimated trend",cex.main=0.9)
+text(40,0, paste0("p-value = ", round(coeff_AR1[2,4], 3)),cex=0.8)
+# text(15,300, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
+#                      round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
+# text(40,340, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
+#                     round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
+text(40,70, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
+                    round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
+# title("1965-2018 MLD timeseries Atlantic Sector (May-Sep) with fits and estimated trend",cex.main=0.9)
+# title("1965-2018 MLD timeseries Central Indian Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
+# title("1965-2018 MLD timeseries East Indian Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
+# title("1965-2018 MLD timeseries East Pacific Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
+title("1965-2018 MLD timeseries West Pacific Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
 
+
+dev.off()
 
 ggplot()+
   geom_point(data = data, aes(obs, MLD))+
@@ -110,7 +125,7 @@ ggplot()+
   # 
 
 
-dev.off()
+
 
 # xRas <- raster(SST, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat))
 # plot(xRas)

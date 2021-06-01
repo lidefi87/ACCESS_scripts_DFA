@@ -78,10 +78,15 @@ def clipDataArray(array, shp):
     Output:
     Clipped data array.
     '''
+    #Extract CRS information from shapefile
     crs = 'epsg:' + str(shp.crs.to_epsg())
-    array.rio.set_spatial_dims(x_dim = 'xt_ocean', y_dim = 'yt_ocean', inplace = True)
-    array.rio.write_crs(crs, inplace = True)
     
+    #Set the spatial dimensions of the xarray being clipped
+    array.rio.set_spatial_dims(x_dim = 'xt_ocean', y_dim = 'yt_ocean', inplace = True) #inplace = True updates the array instead of creating a copy
+    #Assign a CRS to the xarray that matches the shapefile used for clipping. CRS included is CF compliant.
+    array.rio.write_crs(crs, inplace = True) #inplace = True updates the array instead of creating a copy
+    
+    #Clipping maintains only those pixels whose center is within the polygon boundaries and drops any data not meeting this requirement.
     clipped = array.rio.clip(shp.geometry.apply(mapping), shp.crs, drop = True, invert = False, all_touched = False)
     
     return clipped
