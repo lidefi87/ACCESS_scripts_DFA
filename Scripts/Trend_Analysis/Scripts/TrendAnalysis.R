@@ -13,180 +13,258 @@ library(magrittr)
 
 # Setting up data into R --------------------------------------------------
 #Getting list of csv files
-filelist <- list.files(path = "Data/", pattern = ".csv$", full.names = T)
+filelist <- list.files(path = "Data/", pattern = ".csv$", full.names = T)[-5]
+
+vars_int <- list()
 
 #Reading files
-for(i in filelist){
-  var_int <- str_match(i, pattern = "\\/([A-Z]*)\\.csv")[2]
-  assign(var_int, read.csv(filelist))
+for(i in seq_along(filelist)){
+  vars_int[[i]] <- read.csv(filelist[i])
+  names(vars_int)[i] <- str_match(filelist[i], pattern = "\\/(.*)\\.csv")[2]
 }
 
-Atl_MLD <- read.csv(filelist[1])
-CentInd_MLD <- read.csv(filelist[2])
-EastInd_MLD <- read.csv(filelist[3])
-EP_MLD <- read.csv(filelist[4])
-WP_MLD <- read.csv(filelist[5])
-
 #Months into which data will be divided
-months1 <- month.abb[5:9]
-months2 <- month.abb[10:12]
-months3 <- month.abb[1:4]
+months_int <- list(May_Sep = month.abb[5:9],
+                   Oct_Dec = month.abb[10:12],
+                   Jan_Apr = month.abb[1:4])
 
-
-# data <- Atl_MLD %>% 
-# data <- CentInd_MLD %>% 
-# data <- EastInd_MLD %>% 
-# data <- EP_MLD %>% 
-data <- WP_MLD %>% 
-  rename("MLD" = "X0") %>% 
-  mutate(month = month.abb[month]) %>% 
-  filter(month %in% months1) %>% 
-  rowid_to_column("obs") %>% 
-  mutate(group = (obs-1)%/%length(months1))
-
-fit_LM <- data %$% 
-  lm(MLD ~ obs)
-
-summary(fit_LM)
-coef_LM <- summary(fit_LM)$coefficients
-
-data_season <- data %>% 
-  group_by(group) %>%
-  summarise(obs = mean(obs), MLD = mean(MLD))
-
-fit_LM_season <- data_season %$% 
-  lm(MLD~obs)
-
-summary(fit_LM_season)
-coef_LM_season <-summary(fit_LM_season)$coefficients
-
-data.confInt <- predict(fit_LM_season, interval="confidence", data = data_season) %>% 
-  as_tibble() %>% 
-  bind_cols(data_season, .)
-
-fit_AR1 <- gls(MLD~obs, correlation = corAR1(), data = data)
-coeff_AR1 <- summary(fit_AR1)$tTable
-
-data_SLA.LM <- data.frame(obs = data$obs) %>% 
-  mutate(SLA = predict(fit_LM, newdata = .))
-
-data_SLA.MB_LM <- data.frame(obs = data$obs) %>% 
-  mutate(SLA = predict(fit_LM_season, newdata = .))
-
-data_SLA.AR1 <- data.frame(obs = data$obs) %>% 
-  mutate(SLA = predict(fit_AR1, newdata = .))
-
-
-plot(MLD~obs,data = data, xlab="Timesteps", ylab = "Mixed layer depth (MLD, m) ",
-     pch=19,cex=0.5,col="black", ylim =c(0,350))
-polygon(c(data.confInt$obs, rev(data.confInt$obs)), c(data.confInt$lwr, rev(data.confInt$upr)),
-        col=adjustcolor("grey80",alpha.f=0.5),border=NA)
-lines(MLD~obs,data=data, col="azure3", lwd=0.5)
-
-lines(SLA~obs,data=data_SLA.LM, lwd=1,col="dodgerblue4")
-lines(SLA~obs,data=data_SLA.MB_LM, lwd=1,col="chocolate1")
-lines(SLA~obs,data=data_SLA.AR1, lwd=1,col="chartreuse")
-
-points(MLD~obs,data=data_season,pch=19,cex=0.8,col="chocolate1")
-
-legend(1, 70,c("Linear regression (LM)","Moving Block LM","Autoregressive (AR1)"), lwd=c(1,1,1),
-       col=c("dodgerblue4","chocolate1","chartreuse"), y.intersp=0.8,box.lty=0,bg="transparent",cex=0.8)
-
-text(40,42, paste0("p-value = ", round(coef_LM[2,4], 3)),cex=0.8)
-# text(97,35, "p-value < 0.001", cex=0.8)
-text(40,20, paste0("p-value = ", round(coef_LM_season[2,4], 3)),cex=0.8)
-# text(97,22, "p-value < 0.001", cex=0.8)
-text(40,0, paste0("p-value = ", round(coeff_AR1[2,4], 3)),cex=0.8)
-# text(15,300, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
-#                      round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
-# text(40,340, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
-#                     round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
-text(40,70, paste0("Trend = ", round(coef_LM_season[2,1]*12, 2),"m/year ±", 
-                    round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
-# title("1965-2018 MLD timeseries Atlantic Sector (May-Sep) with fits and estimated trend",cex.main=0.9)
-# title("1965-2018 MLD timeseries Central Indian Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
-# title("1965-2018 MLD timeseries East Indian Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
-# title("1965-2018 MLD timeseries East Pacific Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
-title("1965-2018 MLD timeseries West Pacific Sector (May-Sep) \n with fits and estimated trend",cex.main=0.9)
-
-
-dev.off()
-
-ggplot()+
-  geom_point(data = data, aes(obs, MLD))+
-  geom_line(data = data, aes(obs, MLD))
-  labs(x = "Time (months)", y = "Mixed layer depth (MLD, m)", 
-     title = "1965-2018 MLD timeseries with fits and estimated trend: location 1")+
-  geom_ribbon(data = data.confInt, aes(ymin = lwr, ymax = upr, x = obs), fill = "grey80", alpha = 0.5)+
-  theme_bw()
-  # ylim(0, 275)+
-  # scale_y_reverse()+
-  # theme(panel.grid = element_blank())
-  # 
+for(i in seq_along(vars_int)){
+  for(j in seq_along(months_int)){
+    data <- vars_int[[i]] %>% 
+      rename("MLD" = "X0") %>% 
+      mutate(month = month.abb[month]) %>% 
+      filter(month %in% months_int[[j]]) %>% 
+      rowid_to_column("obs") %>% 
+      mutate(group = (obs-1)%/%length(months_int[[j]]))
+  
+    fit_LM <- data %$% 
+      lm(MLD ~ obs)
+    
+    coef_LM <- summary(fit_LM)$coefficients
+    
+    data_season <- data %>% 
+      group_by(group) %>%
+      summarise(obs = mean(obs), MLD = mean(MLD))
+    
+    fit_LM_season <- data_season %$% 
+      lm(MLD~obs)
+    
+    coef_LM_season <-summary(fit_LM_season)$coefficients
+    
+    data.confInt <- predict(fit_LM_season, interval = "confidence", data = data_season) %>% 
+      as_tibble() %>% 
+      bind_cols(data_season, .)
+    
+    fit_AR1 <- gls(MLD ~ obs, correlation = corAR1(), data = data)
+    coeff_AR1 <- summary(fit_AR1)$tTable
+    
+    data_SLA.LM <- data.frame(obs = data$obs) %>% 
+      mutate(SLA = predict(fit_LM, newdata = .))
+    
+    data_SLA.MB_LM <- data.frame(obs = data$obs) %>% 
+      mutate(SLA = predict(fit_LM_season, newdata = .))
+    
+    data_SLA.AR1 <- data.frame(obs = data$obs) %>% 
+      mutate(SLA = predict(fit_AR1, newdata = .))
+    
+    p <- data %>% 
+      ggplot(aes(obs, MLD))+
+      geom_point()+
+      geom_line(col = "azure3")+
+      # ylim(0, max(obs*1.5))+
+      geom_ribbon(data = data.confInt, aes(x = obs, ymin = lwr, ymax = upr), fill = "grey70", alpha = 0.4, 
+                  show.legend = F)+
+      geom_line(data = data_SLA.LM, aes(x = obs, y = SLA, 
+                                        colour = sprintf("Linear regression (LM), p-value = %.3f", coef_LM[2,4])))+
+      geom_line(data = data_SLA.MB_LM, aes(x = obs, y = SLA, 
+                                           colour = sprintf("Moving Block LM, p-value = %.3f", coef_LM_season[2,4])))+
+      geom_line(data = data_SLA.AR1, aes(x = obs, y = SLA, 
+                                         colour = sprintf("Autoregressive (AR1), p-value = %.3f", coeff_AR1[2,4])))+
+      geom_point(data = data_season, aes(x = obs, y = MLD), col = "chocolate1", show.legend = F)+
+      scale_color_manual(values = c("dodgerblue4", "chocolate1", "chartreuse"))+
+      labs(x = "Timesteps", y = "Mixed layer depth (MLD, m)",
+           caption = sprintf("Trend = %.2f m/year ± %.2f", coef_LM_season[2,1]*12, coef_LM_season[2,2]*12))+
+      guides(colour = guide_legend(title = element_blank(), ncol = 1))+
+      theme_bw()+
+      theme(panel.grid = element_blank(), legend.position = "top", legend.box.spacing = unit(0.1, "cm"),
+            plot.caption = element_text(hjust = 0))
+    ggsave(paste0("Outputs/", names(vars_int)[i], "-", names(months_int)[j], ".png"), p, device = "png")
+}}
 
 
 
+# Sea ice seasonality -----------------------------------------------------
+library(lubridate)
+library(cowplot)
 
-# xRas <- raster(SST, xmn=min(lon), xmx=max(lon), ymn=min(lat), ymx=max(lat))
-# plot(xRas)
-# 
-# data <- data.frame(aice = SST[!is.na(SST)][1:24])
-# data$obs <- 1:nrow(data)
+#Location of sea ice seasonality data
+Inputs <- "C:/Users/ldfierro/OneDrive - University of Tasmania/ACCESS_Outputs/Calculations/SeaIceSeasonality/Yearly/Sectors/"
+#Location where outputs will be saved
+Outputs <- "C:/Users/ldfierro/OneDrive - University of Tasmania/ACCESS_Outputs/Figures/TimeSeries/SeaIceSeasonality/PolarZones/"
 
-# fit_LM <- lm(aice~obs,data=data)
-# summary(fit_LM)
-# coef_LM<-summary(fit_LM)$coefficients
+#Get lists of files for sea ice seasons
+adv <- list.files(Inputs, pattern = "advance", full.names = T)
+ret <- list.files(Inputs, pattern = "retreat", full.names = T)
+dur <- list.files(Inputs, pattern = "duration", full.names = T)
 
-# %/% divides two numbers and gives you the result as an integer
-# data$group <- (data$obs-1)%/%3
-# data_season <- data %>%
-#   group_by(group) %>%
-#   summarise(obs = mean(obs), aice = mean(aice))
+#Defining function that will calculate time series trends
+Trend_Calculation <- function(filepath, group_yrs, var_name){
+  #Load csv file containing sea ice data
+  data <- read_csv(filepath) %>% 
+    #Rename variable of interest to standarise code
+    rename("var" = var_name) %>% 
+    #Create a column of unique identifiers per row
+    rowid_to_column("obs") %>% 
+    #Create groups based on the number of years set as input
+    mutate(group = (obs-1)%/%group_yrs)
+  
+  #Calculate a simple linear model
+  fit_LM <- lm(var ~ obs, data)
+  #Extract coefficients of linear model
+  coef_LM <- summary(fit_LM)$coefficients
+  
+  ###
+  #Group data by group_yrs
+  data_season <- data %>% 
+    group_by(group) %>%
+    summarise(obs = mean(obs), var_grp = mean(var))
+  
+  #Calculate LM on grouped data
+  fit_LM_season <- lm(var_grp ~ obs, data_season)
+  #Extract coefficient of LM on grouped data
+  coef_LM_season <-summary(fit_LM_season)$coefficients
+  
+  ###
+  #Calculating predictions based on grouped LM results
+  data.confInt <- predict(fit_LM_season, interval = "confidence", data = data_season) %>% 
+    as_tibble() %>% 
+    bind_cols(data_season, .)
+  
+  ###
+  #Calculate Generalised Linear Squares with AR1
+  fit_AR1 <- gls(var ~ obs, correlation = corAR1(), data = data)
+  #Extract coefficients of GLS
+  coeff_AR1 <- summary(fit_AR1)$tTable
+  
+  ###
+  #Calculating predictions based on all model defined above
+  data.LM <- data.frame(obs = data$obs) %>% 
+    mutate(pred = predict(fit_LM, newdata = .))
+  
+  data.MB_LM <- data.frame(obs = data$obs) %>% 
+    mutate(pred = predict(fit_LM_season, newdata = .))
+  
+  data.AR1 <- data.frame(obs = data$obs) %>% 
+    mutate(pred = predict(fit_AR1, newdata = .))
+  
+  return(list(raw = data, LM_raw = fit_LM, coef_LM_raw = coef_LM, 
+              group_data = data_season, LM_group = fit_LM_season, coef_LM_group = coef_LM_season, 
+              confInt = data.confInt, AR1 = fit_AR1, coef_AR1 = coeff_AR1,
+              pred_LM = data.LM, pred_group_LM = data.MB_LM, pred_AR1 = data.AR1))
+}
 
-# fit_LM_season <- lm(aice~obs, data_season)
-# summary(fit_LM_season)
 
-# coef_LM_season <-summary(fit_LM_season)$coefficients
-
-# data.confInt <- data_season
-# data.confInt <- cbind(data.confInt, predict(fit_LM_season, interval="confidence", data=data.confInt))
-
-
-# fit_AR1 <- gls(aice~obs, correlation = corAR1(), data = data)
-# coeff_AR1 <- summary(fit_AR1)$tTable
-
-# plot(aice~obs,data = data, xlab="Time (months) ", ylab="Sea level anomaly (cm) ",pch=19,cex=0.5,col="black",ylim=c(-70,70))
-# polygon(c(data.confInt$obs, rev(data.confInt$obs)), c(data.confInt$lwr, rev(data.confInt$upr)),
-#         col=adjustcolor("grey80",alpha.f=0.5),border=NA)
-# lines(aice~obs,data=data, col="azure3", lwd=0.5)
-# 
-# 
-# data_SLA.LM <- data.frame(obs=1:24)
-# data_SLA.LM$SLA <- predict(fit_LM,newdata=data_SLA.LM)
-# data_SLA.MB_LM <- data.frame(obs=1:24)
-# data_SLA.MB_LM$SLA <- predict(fit_LM_season,newdata=data_SLA.MB_LM)
-# data_SLA.AR1 <- data.frame(obs=1:24)
-# data_SLA.AR1$SLA <- predict(fit_AR1,newdata=data_SLA.AR1)
-
-# lines(SLA~obs,data=data_SLA.LM, lwd=1,col="dodgerblue4")
-# lines(SLA~obs,data=data_SLA.MB_LM, lwd=1,col="chocolate1")
-# lines(SLA~obs,data=data_SLA.AR1, lwd=1,col="chartreuse")
-# 
-# points(aice~obs,data=data_season,pch=19,cex=0.8,col="chocolate1")
-# 
-# legend(10,-50,c("Linear regression (LM)","moving block LM","Autoregressive (AR1)"), lwd=c(1,1,1),
-#        col=c("dodgerblue4","chocolate1","chartreuse"), y.intersp=0.8,box.lty=0,bg="transparent",cex=0.8)
-# 
-# text(17,-55, paste0("p-value=", round(coef_LM[2,4], 3)),cex=0.8)
-# text(17,-59, paste0("p-value=", round(coef_LM_season[2,4], 3)),cex=0.8)
-# text(17,-63, paste0("p-value=", round(coeff_AR1[2,4], 3)),cex=0.8)
-# text(2.75,65, paste0("Trend =", round(coef_LM_season[2,1]*12, 2),"cm/year  ±", round(coef_LM_season[2,2]*12, 2)),cex=0.8,font=2)
-# title("1993-2014 SLA timeseries with fits and estimated trend: location 1",cex.main=0.9)
-# 
-# 
-# dev.off()
+#####
+#Defining function to plot results
+plot_Trends <- function(list, y_lab, units_change, group_yrs, title){
+  #Creating figure
+  ggplot()+
+    geom_point(data = list$raw, aes(obs, var))+
+    geom_line(data = list$raw, aes(obs, var), col = "azure3")+
+    geom_ribbon(data = list$confInt, aes(x = obs, ymin = lwr, ymax = upr), fill = "grey70", alpha = 0.4, 
+                show.legend = F)+
+    geom_line(data = list$pred_LM, aes(x = obs, y = pred,
+                                       colour = sprintf("Linear regression (LM), p-value = %.3f",
+                                                        list$coef_LM_raw["obs", "Pr(>|t|)"])))+
+    geom_line(data = list$pred_group_LM, aes(x = obs, y = pred, colour = sprintf("Moving Block LM, p-value = %.3f",
+                                                                         list$coef_LM_group["obs", "Pr(>|t|)"])))+
+    geom_line(data = list$pred_AR1, aes(x = obs, y = pred, colour = sprintf("Autoregressive (AR1), p-value = %.3f", 
+                                                                       list$coef_AR1["obs", "p-value"])))+
+    geom_point(data = list$group_data, aes(x = obs, y = var_grp), col = "chocolate1", show.legend = F)+
+    scale_color_manual(values = c("dodgerblue4", "chocolate1", "chartreuse"))+
+    labs(x = "Timesteps", y = y_lab, title = title,
+         caption = sprintf("Trend = %.2f ± %.2f %s", list$coef_LM_group["obs", "Estimate"]*group_yrs, 
+                           list$coef_LM_group["obs", "Std. Error"]*group_yrs, units_change))+
+    guides(colour = guide_legend(title = element_blank(), nrow = 2))+
+    theme_bw()+
+    theme(panel.grid = element_blank(), legend.position = "top", legend.box.spacing = unit(0.1, "cm"),
+          plot.caption = element_text(hjust = 0, size = 12), legend.text = element_text(size = 12), 
+          axis.text = element_text(size = 11), axis.title = element_text(size = 12), title = element_text(size = 14))
+}
 
 
+####
+#Advance
+#Creating an empty list to save figures
+figs <- list()
+#Create an empty vector to standarise y axis limits of all plots
+lims <- vector()
+
+#Applying functions
+for(i in seq_along(adv)){
+  out <- Trend_Calculation(adv[i], group_yrs = 10, var_name = "aice")
+  sector <- str_match(adv[i], ".*_(.*)_\\d{4}-\\d{4}")[,2]
+  figs[[sector]] <- plot_Trends(out, "Sea ice advance (Days from February 15)", "days/decade", group_yrs = 10, 
+                                title = paste0(sector, " sector"))
+  lims <- append(lims, layer_scales(figs[[i]])$y$range$range)
+}
+
+#Get y limits to standarise them across figures before saving
+lims <- c(min(lims), max(lims))
+for(i in seq_along(figs)){
+  figs[[i]] <- figs[[i]]+ylim(lims)
+  fileout <- paste0(Outputs, "SeaIceAdvance_", str_match(adv[i], ".*_(.*_\\d{4}-\\d{4})")[,2], ".png")
+  ggsave(fileout, figs[[i]], device = "png")
+  }
+
+####
+#Retreat
+#Creating an empty list to save figures
+figs <- list()
+#Create an empty vector to standarise y axis limits of all plots
+lims <- vector()
+
+#Applying functions
+for(i in seq_along(ret)){
+  out <- Trend_Calculation(ret[i], group_yrs = 10, var_name = "aice")
+  sector <- str_match(ret[i], ".*_(.*)_\\d{4}-\\d{4}")[,2]
+  figs[[sector]] <- plot_Trends(out, "Sea ice retreat (Days from February 15)", "days/decade", group_yrs = 10, 
+                                title = paste0(sector, " sector"))
+  lims <- append(lims, layer_scales(figs[[i]])$y$range$range)
+}
+
+#Get y limits to standarise them across figures before saving
+lims <- c(min(lims), max(lims))
+for(i in seq_along(figs)){
+  figs[[i]] <- figs[[i]]+ylim(lims)
+  fileout <- paste0(Outputs, "SeaIceRetreat_", str_match(ret[i], ".*_(.*_\\d{4}-\\d{4})")[,2], ".png")
+  ggsave(fileout, figs[[i]], device = "png")
+}
+
+
+####
+#Duration
+#Creating an empty list to save figures
+figs <- list()
+#Create an empty vector to standarise y axis limits of all plots
+lims <- vector()
+
+#Applying functions
+for(i in seq_along(dur)){
+  out <- Trend_Calculation(dur[i], group_yrs = 10, var_name = "aice")
+  sector <- str_match(dur[i], ".*_(.*)_\\d{4}-\\d{4}")[,2]
+  figs[[sector]] <- plot_Trends(out, "Sea ice duration (Total number of days)", "days/decade", group_yrs = 10, 
+                                title = paste0(sector, " sector"))
+  lims <- append(lims, layer_scales(figs[[i]])$y$range$range)
+}
+
+#Get y limits to standarise them across figures before saving
+lims <- c(min(lims), max(lims))
+for(i in seq_along(figs)){
+  figs[[i]] <- figs[[i]]+ylim(lims)
+  fileout <- paste0(Outputs, "SeaIceDuration_", str_match(dur[i], ".*_(.*_\\d{4}-\\d{4})")[,2], ".png")
+  ggsave(fileout, figs[[i]], device = "png")
+}
 
 
 # Loading data ------------------------------------------------------------
