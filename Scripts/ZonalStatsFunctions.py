@@ -227,8 +227,8 @@ def combineData(filepath, filelist, dir_out):
     '''
     Inputs:
     filepath - refers to the file path of the folder containing the netcdf files to be combined into a single data array.
-    filelist - contains the actual names of the netcdf files that will be combined..
-    dir_out - file path of the folder where combined data arrays will be saved
+    filelist - contains the actual names of the netcdf files that will be combined.
+    dir_out - file path of the folder where combined data arrays will be saved.
       
     Outputs:
     Three dimensional data array containing all files provided in the filelist input. The data array is saved to the path provided in dir_out and it can also be assigned to a variable.
@@ -246,6 +246,34 @@ def combineData(filepath, filelist, dir_out):
     combined = xr.concat(combData, dim = 'time')
     combined.to_netcdf(os.path.join(dir_out, (filelist[0][0:15]+filelist[-1][15:19]+'.nc')))
     return combined
+    
+
+########
+#This function creates a colour palette using Crameri's palettes (Crameri, F. (2018), Scientific colour-maps, Zenodo, doi:10.5281/zenodo.1243862)
+def colourMaps(colourLibraryPath, palette, rev = True):
+    '''
+    Inputs:
+    colourLibraryPath - the file path where the palettes are currently saved.
+    palette - name of the palette to be created.
+    rev - Boolean. If True, it will create a normal and reversed version of the palette. If False, it will only return one palette
+    
+    Outputs:
+    One or two palettes based on Crameri (2018) that can be used to colour matplotlib figures
+    '''
+    #Load relevant libraries to set Scientific Colour Map library
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.colors import ListedColormap
+
+    #Set path where the scientific library is found
+    cm_data = np.loadtxt(os.path.join(colourLibraryPath, palette, (palette + '.txt')))
+    #Create a colour map based on 'palette' argument
+    pal_map_adv = LinearSegmentedColormap.from_list(palette, cm_data)
+        
+    if rev == True:
+        pal_map_ret = ListedColormap(cm_data[::-1])
+        return pal_map_adv,pal_map_ret
+    else:
+        return pal_map_adv
     
 ########
 def main(inargs):
