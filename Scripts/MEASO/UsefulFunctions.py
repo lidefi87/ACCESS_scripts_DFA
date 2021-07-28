@@ -14,6 +14,7 @@ import rasterio.plot
 import rioxarray
 from shapely.geometry import mapping, Polygon
 import calendar
+import statsmodels.api as sm
 
 ########
 #Defining functions
@@ -53,23 +54,27 @@ def corrlong(array):
     '''
     
     #Making a deep copy of original longitude values in the array being corrected
-    corr_lon = copy.deepcopy(array.xt_ocean.values)
+    lon = array['longitude'][0].values
     
-    ##Now we need to correct any values smaller than -180 and replace them with values between +80 and +180. Note that the smallest longitude value (-279.95) should be +80.05.
-    #While -180.05 should have a correct value of +179.95.
-    corr_lon[np.where(corr_lon < -180)] = sorted(-corr_lon[np.where((corr_lon >= -180) & (corr_lon <= -80))])
+    #Values changed from 0-360 to between -180 and +180.
+    lon[np.where(lon > 180)] = lon[np.where(lon >180)]-360
     
-    #Assign corrected longitude values to the data array being corrected
-    array.coords['xt_ocean'] = corr_lon
+    #Assigning corrected longitudes and latitude values to i and j, which are index based
+    array.coords['i'] = lon
+    array.coords['j'] = array['latitude'][:,0].values
+    
+    #Removing latitude and longitude dimensions and renaming i and j dimensions
+    array = array.drop(('latitude', 'longitude'))
+    array = array.rename(({'i':'longitude', 'j':'latitude'}))
     
     #Longitude values must be sorted from smallest to largest prior to plotting
-    array = array.sortby(array.xt_ocean)
+    array = array.sortby(array.longitude)
     
     return array
 
 ########
 #This function assigns the same coordinate reference system (CRS) to the data array being clipped as the clipping shapefile and then clips the data array
-def clipDataArray(array, shp):
+def clipDataArray(array, shp, all_touched = False):
     '''
     Inputs:
     array - Data array to be clipped.
@@ -78,16 +83,13 @@ def clipDataArray(array, shp):
     Output:
     Clipped data array.
     '''
-    #Extract CRS information from shapefile
-    crs = 'epsg:' + str(shp.crs.to_epsg())
-    
     #Set the spatial dimensions of the xarray being clipped
     array.rio.set_spatial_dims(x_dim = 'longitude', y_dim = 'latitude', inplace = True) #inplace = True updates the array instead of creating a copy
     #Assign a CRS to the xarray that matches the shapefile used for clipping. CRS included is CF compliant.
-    array.rio.write_crs(crs, inplace = True) #inplace = True updates the array instead of creating a copy
+    array.rio.write_crs(shp.crs, inplace = True) #inplace = True updates the array instead of creating a copy
     
     #Clipping maintains only those pixels whose center is within the polygon boundaries and drops any data not meeting this requirement.
-    clipped = array.rio.clip(shp.geometry.apply(mapping), shp.crs, drop = True, invert = False, all_touched = False)
+    clipped = array.rio.clip(shp.geometry, shp.crs, drop = True, invert = False, all_touched = all_touched)
     
     return clipped
 
@@ -274,6 +276,56 @@ def colourMaps(colourLibraryPath, palette, rev = True):
         return pal_map_adv,pal_map_ret
     else:
         return pal_map_adv
+    
+########
+#This function performs a linear trend calculation and returns the coefficients as well as p-values for the linear regression
+def linearTrends(y, x):
+    '''
+    Inputs:
+    y - data array with information about dependent variable
+    x - data array with information about independent variable
+        
+    Output:
+    Coefficients and p-values of linear regression
+    '''
+    
+    model = sm.OLS(y, x)
+    coef = model.fit().params[1]
+    sig = model.fit().pvalues[1]
+    rsq_adj = model.fit().rsquared_adj
+    
+    #To check extra information available in the model use
+    #dir(model.fit())
+    
+    return coef, sig, rsq_adj
+
+########
+#This function calculates anomalies 
+def AnomCalc(array, clim_array, std_anom = False):
+    '''
+    Inputs:
+    array - refers to a data array containing information for the period being compared to the baseline. It could include just one year or multiple years (decades)
+    clim_array - three dimensional array containing data over the baseline period from which anomalies will be calculated
+    std_anom - boolean variable that if set to True will result in standarised anomalies being calculated
+      
+    Outputs:
+    Data array containing anomalies.
+    '''
+    
+    #Calculate long term mean of array
+    m_climarray = clim_array.mean('time')
+      
+    #Calculate anomalies
+    #Standarised anomalies
+    if std_anom == True:
+        s_climarray = clim_array.std('time')
+        anom = (array - m_climarray)/s_climarray
+    #Non-standarised anomalies
+    elif std_anom == False:
+        anom = array - m_climarray
+    
+    #Return anomalies
+    return anom
     
 ########
 def main(inargs):

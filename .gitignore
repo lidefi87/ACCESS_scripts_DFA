@@ -26,6 +26,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.dirlock
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -76,6 +77,8 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*global.lock
+*purge.lock
 
 # IPython
 profile_default/
@@ -131,3 +134,10 @@ dmypy.json
 #Images
 *.tiff
 .Rproj.user
+*.nc
+
+#R related files
+.Rproj.user
+*.Rhistory
+.RData
+.Ruserdata
