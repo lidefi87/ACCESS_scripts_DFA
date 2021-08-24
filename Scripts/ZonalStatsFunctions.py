@@ -15,13 +15,14 @@ import rioxarray
 from shapely.geometry import mapping, Polygon
 import calendar
 import statsmodels.api as sm
+import datetime as dt
 
 ########
 #Defining functions
 
 ########
-#Loads ACCESS-OM2-01 data for the Southern Ocean
-def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, exp = '01deg_jra55v140_iaf_cycle2'):
+#Loads ACCESS-OM2-01 sea ice and ocean data for the Southern Ocean. If ice data is accessed, it corrects the time and coordinate grid to match ocean outputs.
+def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, exp = '01deg_jra55v140_iaf_cycle2', ice_data = False):
     '''
     Inputs:
     var - Short name for the variable of interest
@@ -31,13 +32,27 @@ def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, exp = 
     ses - Cookbook session
     minlat - minimum latitude from which to return data. If not set, defaults to -90 to cover the Southern Ocean.
     maxlat - maximum latitude from which to return data. If not set, defaults to -45 to cover the Southern Ocean.
-    exp - Experiment name
+    exp - Experiment name. Default is 01deg_jra55v140_iaf_cycle2.
+    ice_data - Boolean, when True the variable being called is related to sea ice, when False is not. Default is set to False (i.e., it assumes variable is related to the ocean).
         
     Output:
     Data array with corrected time and coordinates within the specified time period and spatial bounding box.
     '''
     #Accessing data
     vararray = cc.querying.getvar(exp, var, ses, frequency = freq, start_time = start, end_time = end)
+    
+    #If data being accessed is an ice related variable, then apply the following steps
+    if ice_data == True:
+        #Accessing corrected coordinate data to update geographical coordinates in the array of interest
+        geolon_t = cc.querying.getvar(exp, 'geolon_t', ses, n = -1)
+        #Apply time correction so data appears in the middle (12:00) of the day rather than at the beginning of the day (00:00)
+        vararray['time'] = vararray.time.to_pandas() - dt.timedelta(hours = 12)
+        #Change coordinates so they match ocean dimensions 
+        vararray.coords['ni'] = geolon_t['xt_ocean'].values
+        vararray.coords['nj'] = geolon_t['yt_ocean'].values
+        #Rename coordinate variables so they match ocean data
+        vararray = vararray.rename(({'ni':'xt_ocean', 'nj':'yt_ocean'}))
+    
     #Subsetting data to area of interest
     vararray = vararray.sel(yt_ocean = slice(minlat, maxlat))
     return vararray
@@ -302,7 +317,22 @@ def linearTrends(y, x, rsquared = False):
         sig = model.fit().pvalues[1]
         return coef, sig
 
-
+    
+########
+#Defining function that will be applied across dimensions
+def lm_yr(x, y, dim):
+    '''
+    Inputs:
+    x - refers to the independent variable
+    y - refers to the dependent variable
+    dim - refers to the dimension along which the function will be mapped
+    
+    Output:
+    Data array containing the results of a simple linear model
+    '''
+    return xr.apply_ufunc(sm.OLS, y, x, input_core_dims = [[], [dim]])
+    
+    
 ########
 #This function calculates anomalies 
 def AnomCalc(array, clim_array, std_anom = False):
@@ -330,7 +360,34 @@ def AnomCalc(array, clim_array, std_anom = False):
     
     #Return anomalies
     return anom
+
+
+########
+#Getting maximum and minimum years included in the analysis
+def colbarRange(dict_data, sector, season):
+    '''
+    Inputs:
+    dict_data - refers to a dictionary that contains the datasets being plotted.
+    iter1 - refers to a list which elements will be used to iterate through.
     
+    Optional argument:
+    iter2 - refers to a list which elements will be used to iterate through.
+    '''
+    
+    #Define variables that will store the maximum and minimum values
+    maxV = []
+    minV = []
+    
+    sector = sector*len(season)
+    season = np.concatenate([[i]*len(sector) for i in season], axis = 0)
+    for sec, sea in zip(sector, season):
+        maxV.append(dict_data[f'{sec}_{sea}'].indexes['time'].year.max())
+        minV.append(dict_data[f'{sec}_{sea}'].indexes['time'].year.min())
+        
+    maxV = max(maxV)
+    minV = min(minV)
+
+    return minV, maxV
 ########
 def main(inargs):
     '''Run the program.'''
