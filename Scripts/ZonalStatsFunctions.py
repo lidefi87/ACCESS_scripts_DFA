@@ -16,13 +16,15 @@ from shapely.geometry import mapping, Polygon
 import calendar
 import statsmodels.api as sm
 import datetime as dt
+import scipy.stats as ss
 
 ########
 #Defining functions
 
 ########
 #Loads ACCESS-OM2-01 sea ice and ocean data for the Southern Ocean. If ice data is accessed, it corrects the time and coordinate grid to match ocean outputs.
-def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, exp = '01deg_jra55v140_iaf_cycle2', ice_data = False):
+def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, 
+                  exp = '01deg_jra55v140_iaf_cycle2', ice_data = False):
     '''
     Inputs:
     var - Short name for the variable of interest
@@ -320,7 +322,7 @@ def linearTrends(y, x, rsquared = False):
     
 ########
 #Defining function that will be applied across dimensions
-def lm_yr(x, y, dim):
+def lm_yr(y, x):
     '''
     Inputs:
     x - refers to the independent variable
@@ -330,7 +332,7 @@ def lm_yr(x, y, dim):
     Output:
     Data array containing the results of a simple linear model
     '''
-    return xr.apply_ufunc(sm.OLS, y, x, input_core_dims = [[], [dim]])
+    return ss.linregress(x, y)
     
     
 ########
@@ -368,10 +370,8 @@ def colbarRange(dict_data, sector, season):
     '''
     Inputs:
     dict_data - refers to a dictionary that contains the datasets being plotted.
-    iter1 - refers to a list which elements will be used to iterate through.
-    
-    Optional argument:
-    iter2 - refers to a list which elements will be used to iterate through.
+    sector - refers to a list of sectors
+    season - refers to a list of seasons
     '''
     
     #Define variables that will store the maximum and minimum values
@@ -388,6 +388,138 @@ def colbarRange(dict_data, sector, season):
     minV = min(minV)
 
     return minV, maxV
+
+
+########
+def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
+    '''
+    The `SeaIceAdvArrays` function below was losely based on the `calc_ice_season` function from the `aceecostats` R package developed by Michael Sumner at AAD. This function calculates annual sea ice advance, retreat and total sea ice season duration as defined by Massom et al 2013 [DOI:10.1371/journal.pone.0064756].  
+Briefly, if sea ice concentration in any pixel is at least 15% over five consecutive days, sea ice is considered to be advancing. Sea ice is retreating when its concentration is below 15% in any pixel until the end of the sea ice year. Sea ice season duration is the period between day of advance and retreat. Sea ice year is between February 15 and February 14 the following year.
+    Inputs:
+    array is the data array on which sea ice seasonality calculations will be performed
+    dir_out is the file path to the folder where outputs should be saved.
+    thres refers to the minimum sea ice concentration threshold. The default is set to 0.15
+    ndays is the minimum amount of consecutive days sea ice must be above threshold to be classified as advancing. Default set to 5
+    
+    Outputs:
+    Function saves three data arrays as netcdf files: advance, retreat and season duration. Data arrays can also be saved as variables in the notebook.
+    '''
+    
+    #Extracting maximum and minimum year information to extract data for the sea ice year 
+    MinY = str(array.time.dt.year.values.min())
+    MaxY = str(array.time.dt.year.values.max())
+    
+    #Selecting data between Feb 15 to Feb 14 (sea ice year)
+    array = array.sel(time = slice(f'{MinY}-02-15', f'{MaxY}-02-14'))
+    
+    ########
+    #Preparing masks to perform calculations on areas of interest only
+    #Calculate timesteps in dataset (365 or 366 depending on whether it was a leap year or not)
+    timesteps = len(array.time.values)
+
+    #Identify pixels (or cells) where sea ice concentration values are equal or above the threshold
+    #Resulting data array is boolean. If condition is met then pixel is set to True, otherwise set to False
+    threshold = xr.where(array >= thres, True, False)
+
+    #Creating masks based on time over threshold
+    #Add values through time to get total of days with ice cover of at least 15% within a pixel
+    rsum = threshold.sum('time')
+
+    #Boolean data arrays for masking
+    #If the total sum is zero, then set pixel to be True, otherwise set to False. 
+    #This identifies pixels where minimum sea ice concentration was never reached.
+    noIce = xr.where(rsum == 0, True, False)
+    #If the total sum is less than the minimum days, then set pixel to be True, otherwise set to False. 
+    #This identifies pixels where sea ice coverage did not meet the minimum consecutive days requirement.
+    noIceAdv = xr.where(rsum < ndays, True, False)
+    #If the total sum is the same as the timesteps, then set pixel to be True, otherwise set to False.
+    #This identifies pixels where sea ice concentration was always at least 15%
+    alwaysIce = xr.where(rsum == timesteps, True, False)
+    #Remove unused variables
+    del rsum
+
+    ########
+    #Sea ice advance calculations
+    #Use cumulative sums based on time. If pixel has sea ice cover below threshold, 
+    #then cumulative sum is reset to zero
+    adv = threshold.cumsum(dim = 'time')-threshold.cumsum(dim = 'time').\
+    where(threshold == 0).ffill(dim = 'time').fillna(0)
+    #Note: ffill adds nan values forward over a specific dimension
+
+    #Find timestep (date) where the minimum consecutive sea ice concentration was first 
+    #detected for each pixel
+    #Change all pixels that do not meet the minimum consecutive sea ice concentration to False. 
+    #Otherwise maintain their value.
+    advDate = xr.where(adv == ndays, adv, False)
+    #Find the time step index where condition above was met.
+    advDate = advDate.argmax(dim = 'time')
+    #Apply masks of no sea ice advance and sea ice always present.
+    advDate = advDate.where(noIceAdv == False, np.nan).where(alwaysIce == False, 1)
+    #Remove unused variables
+    del adv
+
+    ########
+    #Sea ice retreat calculations
+    #Reverse threshold data array (time wise) - So end date is now the start date and calculate 
+    #cumulative sum over time
+    ret = threshold[::-1].cumsum('time')
+    del threshold
+    #Change zero values to 9999 so they are ignored in the next step of our calculation
+    ret = xr.where(ret == 0, 9999, ret)
+    #Find the time step index where sea ice concentration change to above threshold.
+    retDate = ret.argmin(dim = 'time')
+    #Substract index from total time length
+    retDate = timesteps-retDate
+    #Apply masks of no sea ice over threshold and sea ice always over threshold.
+    retDate = retDate.where(noIce == False, np.nan).where(alwaysIce == False, timesteps)
+    #Remove unused variables
+    del ret
+    
+    ########
+    #Sea ice duration
+    durDays = retDate-advDate
+    #Remove unused variables
+    del noIce, noIceAdv, alwaysIce
+    
+    ########
+    #Adding a time dimension to newly created arrays and removing unused dimensions
+    def addTime(array, year):
+        #Create a time variable to add as dimension to each array - Only one timestep included
+        time = pd.date_range(f'{year}-02-15', f'{year}-02-16', freq = 'D', closed = 'left')
+        #Add time dimension to data array
+        x = array.expand_dims({'time': time}).assign_coords({'time': time})
+        #Remove dimensions that are not needed
+        x = x.drop('TLON').drop('TLAT').drop('ULON').drop('ULAT')
+        #Return 
+        return x
+         
+    #Applying function
+    advDate2 = addTime(advDate, MinY)
+    retDate2 = addTime(retDate, MinY)
+    durDate = addTime(durDays, MinY)
+    del advDate, retDate, durDays
+      
+    ########
+    #Save corrected outputs as netcdfiles
+    if 'dir_out' in kwargs.keys():
+        #Check output folder exists
+        os.makedirs(kwargs.get('dir_out'), exist_ok = True)
+    
+        #Define output paths
+        advpath = os.path.join(dir_out, (f'SeaIceAdv_{MinY}-{MaxY}.nc'))
+        retpath = os.path.join(dir_out, (f'SeaIceRet_{MinY}-{MaxY}.nc'))
+        durpath = os.path.join(dir_out, (f'SeaIceDur_{MinY}-{MaxY}.nc'))
+    
+        #Save files simultaneously
+        xr.save_mfdataset(datasets = [advDate2.to_dataset(), 
+                                      retDate2.to_dataset(), 
+                                      durDate.to_dataset()], 
+                          paths = [advpath, retpath, durpath])
+    
+    #Return data arrays as outputs
+    return (advDate2, retDate2, durDate)
+
+
 ########
 def main(inargs):
     '''Run the program.'''
