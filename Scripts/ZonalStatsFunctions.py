@@ -17,6 +17,7 @@ import calendar
 import statsmodels.api as sm
 import datetime as dt
 import scipy.stats as ss
+from glob import glob
 
 ########
 #Defining functions
@@ -205,63 +206,58 @@ def corrYears(xarray):
     
 ########
 #This function can be used to combine various data arrays into one
-def getFileList(filein, yrs):
+def getFileList(filepath, yrs):
     '''
+    The function `getFileList` can be used to extract files for any other time period. It takes the following inputs:
+    
     Inputs:
-    filein - refers to the file path of the folder containing the datasets to be used in calculations.
+    filepath - refers to the file path of the folder containing the datasets to be used in calculations.
     yrs - is a numpy array containing a list of years of interest for calculations.
       
     Outputs:
     Three lists: adv_list, ret_list, and sea_list which contain the list of files containing sea ice advance, retreat and total season duration respectively.
     '''
     #List netcdf files containing sea ice seasonality data
-    filelist = os.listdir(filein)
+    filelist = sorted(glob(os.path.join(filepath, '*.nc')))
  
     #Extract files for baseline years
-    basefiles = []
-    for i in filelist:
-        for j in yrs:
-            if i[10:14] == str(j):
-                basefiles.append(i)
-    #Remove variables no longer in use
-    del filelist
+    base = [f for f, y in zip(filelist*len(yrs), np.repeat(yrs, len(filelist))) if str(y) in f]
 
     #Separate files based on whether they contain information about sea ice advance, retreat or season. Order them alphabetically.
-    adv_list = sorted([i for i in basefiles if 'Adv' in i])
-    ret_list = sorted([i for i in basefiles if 'Ret' in i])
-    sea_list = sorted([i for i in basefiles if 'Dur' in i])
-    #Remove variables no longer in use
-    del basefiles
+    adv_list = sorted([f for f in np.unique(base) if 'Adv' in f])
+    ret_list = sorted([f for f in np.unique(base) if 'Ret' in f])
+    dur_list = sorted([f for f in np.unique(base) if 'Dur' in f])
     
     #Return file lists
-    return adv_list, ret_list, sea_list
+    return adv_list, ret_list, dur_list
 
 
 ########
 #This function can be used to calculate baseline means or to extract files for any other time period
-def combineData(filepath, filelist, dir_out):
+def combineData(filelist, **kwargs):
     '''
     Inputs:
-    filepath - refers to the file path of the folder containing the netcdf files to be combined into a single data array.
-    filelist - contains the actual names of the netcdf files that will be combined.
-    dir_out - file path of the folder where combined data arrays will be saved.
+    filelist - contains the file paths to the netcdf files that will be combined.
+    Optional:
+    dir_out - file path of the folder where combined data arrays will be saved
       
     Outputs:
     Three dimensional data array containing all files provided in the filelist input. The data array is saved to the path provided in dir_out and it can also be assigned to a variable.
     '''
     #Create variable to hold combined data arrays
-    combData = []
-    #Create loop based on the total length of filelist
-    for i in np.arange(0, len(filelist)):
-        #Open data array
-        x = xr.open_dataarray(os.path.join(filepath, filelist[i]), autoclose = True)
-        #Put all files in one variable
-        combData.append(x)
+    combData = [xr.open_dataarray(f, autoclose = True) for f in filelist]
         
     #Create one data array with the data contained in the combined variable
-    combined = xr.concat(combData, dim = 'time')
-    combined.to_netcdf(os.path.join(dir_out, (filelist[0][0:15]+filelist[-1][15:19]+'.nc')))
-    return combined
+    combData = xr.concat(combData, dim = 'time')
+        
+    if 'dir_out' in kwargs.keys():
+        os.makedirs(kwargs.get('dir_out'), exist_ok = True)
+        #Get minimum and maximum years to name file 
+        minY = combData.time.dt.year.values.min()
+        maxY = combData.time.dt.year.values.max()
+        combData.to_netcdf(os.path.join(dir_out, f'{minY}-{maxY}.nc'))
+
+    return combData
     
 
 ########
@@ -322,18 +318,59 @@ def linearTrends(y, x, rsquared = False):
     
 ########
 #Defining function that will be applied across dimensions
-def lm_yr(y, x):
+def lm_lats(arr, lats):
     '''
     Inputs:
-    x - refers to the independent variable
-    y - refers to the dependent variable
-    dim - refers to the dimension along which the function will be mapped
-    
+    arr - data array containing the dependent and independent variables
+    lats - list containing the latitudes for which we will calculate linear regressions
+        
     Output:
-    Data array containing the results of a simple linear model
+    Dataset containing the slope, intercept, p and r squared values, std error and predictions
+    for the latitudes of interest
     '''
-    return ss.linregress(x, y)
+    #Create empty list to store results of linear regression
+    slope = []; intercept = []; r_val = []; p_val = []; stderr = []; pred = []
+    #Extract values for each value of interest
+    for lat in lats:
+        sub_lat = arr.sel(yt_ocean = lat, method = 'nearest').dropna('time')
+        #Calculate linear regression
+        try:
+            r_lm = ss.linregress(sub_lat.time.dt.year, sub_lat.values)
+        #If a particular latitude only has NA values, create an exception
+        #so NA values will be returned for all linear regression results
+        except:
+            sub_lat = arr.sel(yt_ocean = lat, method = 'nearest')
+            r_lm = ss.linregress(sub_lat.time.dt.year, sub_lat.values)
+        #Add results to empty lists
+        slope.append(r_lm.slope)
+        intercept.append(r_lm.intercept)
+        r_val.append(r_lm.rvalue)
+        p_val.append(r_lm.pvalue)
+        stderr.append(r_lm.stderr)
+        pred.append(r_lm.intercept+(r_lm.slope*sub_lat.time.dt.year))
     
+    #Create a data array with predictions 
+    pred = xr.concat(pred, dim = 'yt_ocean')
+    #and the rest of variables
+    slope = xr.DataArray(data = slope, name = 'slope', dims = ['yt_ocean'], 
+                 coords = dict(yt_ocean = arr.yt_ocean.values))
+    intercept = xr.DataArray(data = intercept, name = 'intercept', dims = ['yt_ocean'], 
+                 coords = dict(yt_ocean = arr.yt_ocean.values))
+    p_val = xr.DataArray(data = p_val, name = 'p_val', dims = ['yt_ocean'], 
+                 coords = dict(yt_ocean = arr.yt_ocean.values))
+    r_val = xr.DataArray(data = r_val, name = 'r_val', dims = ['yt_ocean'], 
+                 coords = dict(yt_ocean = arr.yt_ocean.values))
+    stderr = xr.DataArray(data = stderr, name = 'stderr', dims = ['yt_ocean'], 
+                 coords = dict(yt_ocean = arr.yt_ocean.values))
+    
+    #Change names prior to creating final dataset
+    pred.name = 'predictions'
+    arr.name = 'model_data'
+    
+    #Merge everything into one dataset
+    ds = xr.merge([arr, pred, slope, intercept, r_val, p_val, stderr])
+    
+    return ds    
     
 ########
 #This function calculates anomalies 
@@ -393,8 +430,9 @@ def colbarRange(dict_data, sector, season):
 ########
 def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
     '''
-    The `SeaIceAdvArrays` function below was losely based on the `calc_ice_season` function from the `aceecostats` R package developed by Michael Sumner at AAD. This function calculates annual sea ice advance, retreat and total sea ice season duration as defined by Massom et al 2013 [DOI:10.1371/journal.pone.0064756].  
-Briefly, if sea ice concentration in any pixel is at least 15% over five consecutive days, sea ice is considered to be advancing. Sea ice is retreating when its concentration is below 15% in any pixel until the end of the sea ice year. Sea ice season duration is the period between day of advance and retreat. Sea ice year is between February 15 and February 14 the following year.
+    The SeaIceAdvArrays was losely based on the `calc_ice_season` function from the `aceecostats` R package developed by Michael Sumner at AAD. This function calculates annual sea ice advance, retreat and total sea ice season duration as defined by Massom et al 2013 [DOI:10.1371/journal.pone.0064756].
+    Briefly, if sea ice concentration in any pixel is at least 15% over five consecutive days, sea ice is considered to be advancing. Sea ice is retreating when its concentration is below 15% in any pixel until the end of the sea ice year. Sea ice season duration is the period between day of advance and retreat. Sea ice year is between February 15 and February 14 the following year.
+    
     Inputs:
     array is the data array on which sea ice seasonality calculations will be performed
     dir_out is the file path to the folder where outputs should be saved.
