@@ -24,7 +24,7 @@ from glob import glob
 
 ########
 #Loads ACCESS-OM2-01 sea ice and ocean data for the Southern Ocean. If ice data is accessed, it corrects the time and coordinate grid to match ocean outputs.
-def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, 
+def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45,
                   exp = '01deg_jra55v140_iaf_cycle2', ice_data = False):
     '''
     Inputs:
@@ -37,25 +37,25 @@ def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45,
     maxlat - maximum latitude from which to return data. If not set, defaults to -45 to cover the Southern Ocean.
     exp - Experiment name. Default is 01deg_jra55v140_iaf_cycle2.
     ice_data - Boolean, when True the variable being called is related to sea ice, when False is not. Default is set to False (i.e., it assumes variable is related to the ocean).
-        
+
     Output:
     Data array with corrected time and coordinates within the specified time period and spatial bounding box.
     '''
     #Accessing data
     vararray = cc.querying.getvar(exp, var, ses, frequency = freq, start_time = start, end_time = end)
-    
+
     #If data being accessed is an ice related variable, then apply the following steps
     if ice_data == True:
         #Accessing corrected coordinate data to update geographical coordinates in the array of interest
         geolon_t = cc.querying.getvar(exp, 'geolon_t', ses, n = -1)
         #Apply time correction so data appears in the middle (12:00) of the day rather than at the beginning of the day (00:00)
         vararray['time'] = vararray.time.to_pandas() - dt.timedelta(hours = 12)
-        #Change coordinates so they match ocean dimensions 
+        #Change coordinates so they match ocean dimensions
         vararray.coords['ni'] = geolon_t['xt_ocean'].values
         vararray.coords['nj'] = geolon_t['yt_ocean'].values
         #Rename coordinate variables so they match ocean data
         vararray = vararray.rename(({'ni':'xt_ocean', 'nj':'yt_ocean'}))
-    
+
     #Subsetting data to area of interest
     vararray = vararray.sel(yt_ocean = slice(minlat, maxlat))
     return vararray
@@ -66,24 +66,24 @@ def corrlong(array):
     '''
     Inputs:
     array - Data array on which longitude corrections will be applied.
-    
+
     Output:
     Data array with corrected longitude values.
     '''
-    
+
     #Making a deep copy of original longitude values in the array being corrected
     corr_lon = copy.deepcopy(array.xt_ocean.values)
-    
+
     ##Now we need to correct any values smaller than -180 and replace them with values between +80 and +180. Note that the smallest longitude value (-279.95) should be +80.05.
     #While -180.05 should have a correct value of +179.95.
     corr_lon[np.where(corr_lon < -180)] = sorted(-corr_lon[np.where((corr_lon >= -180) & (corr_lon <= -80))])
-    
+
     #Assign corrected longitude values to the data array being corrected
     array.coords['xt_ocean'] = corr_lon
-    
+
     #Longitude values must be sorted from smallest to largest prior to plotting
     array = array.sortby(array.xt_ocean)
-    
+
     return array
 
 ########
@@ -93,19 +93,19 @@ def clipDataArray(array, shp):
     Inputs:
     array - Data array to be clipped.
     shp - Shapefile to be used for clipping.
-    
+
     Output:
     Clipped data array.
     '''
-        
+
     #Set the spatial dimensions of the xarray being clipped
     array.rio.set_spatial_dims(x_dim = 'xt_ocean', y_dim = 'yt_ocean', inplace = True) #inplace = True updates the array instead of creating a copy
     #Assign a CRS to the xarray that matches the shapefile used for clipping. CRS included is CF compliant.
     array.rio.write_crs(shp.crs, inplace = True) #inplace = True updates the array instead of creating a copy
-    
+
     #Clipping maintains only those pixels whose center is within the polygon boundaries and drops any data not meeting this requirement.
     clipped = array.rio.clip(shp.geometry, shp.crs, drop = True, invert = False, all_touched = False)
-    
+
     return clipped
 
 ########
@@ -116,14 +116,14 @@ def weightedMeans(array, weights, meanby = 'timestep'):
     array - Data array containing variable from which means will be calculated
     weights - Data array containing weights
     meanby - Define how means will be calculate: timestep, month or season. Default set to 'timestep'
-    
+
     Output:
     Data array containing weighted means
     '''
-      
+
     #Calculate weights
     weights = weights/weights.sum()
-        
+
     #Apply weights to variable - Calculate weighted mean over timestep and then calculate the mean by season
     if meanby == 'season':
         weighted_mean = (array*weights).groupby('time').sum(('xt_ocean', 'yt_ocean')).groupby('time.season').mean()
@@ -131,7 +131,7 @@ def weightedMeans(array, weights, meanby = 'timestep'):
         weighted_mean = (array*weights).groupby('time').sum(('xt_ocean', 'yt_ocean')).groupby('time.month').mean()
     elif meanby == 'timestep':
         weighted_mean = (array*weights).groupby('time').sum(('xt_ocean', 'yt_ocean'))
-        
+
     return weighted_mean
 
 ########
@@ -142,13 +142,13 @@ def addTimeYear(array, year, by = 'season'):
     array - Data array to which a time dimension containing the year of sampling will be added to an array that contains four timesteps, one per season
     year - A string containing the year that will be added as a time dimension
     by - A string describing if data array is group by months (monthly), or per season (season). Default set to season
-    
+
     Output:
     Data array with a time dimension containing the year of sampling
     '''
     if not isinstance(year, str):
         year = str(year)
-    
+
     if by == 'season':
         #Create a time variable to add as a coordinate to each array
         time = [year]*4
@@ -158,7 +158,7 @@ def addTimeYear(array, year, by = 'season'):
         time = [year]*12
         #Add time coordinate to data array
         x = array.assign_coords(time = ('month', time))
-    
+
     #Return data array with the time dimension
     return x
 
@@ -169,17 +169,17 @@ def stackData(folder, keyword):
     Inputs:
     folder - The location of the folder where all netcdf files to be concatenated are located
     keyword - String containing a keyword that will be used to identify all files to be concatenated.
-    
+
     Output:
     Concatenated data array
     '''
-    
+
     if not isinstance(keyword, str):
         print('Keyword argument must be a string.')
-    
+
     #Get a list files that contain the keyword provided and order them alphabetically
     filelist = sorted(list(filter(re.compile('.*' + keyword + '.*').match, os.listdir(folder))))
-    
+
     #Create an empty list that will contain calculations for every year
     combData = []
 
@@ -202,24 +202,24 @@ def corrYears(xarray):
     Months = [calendar.month_abbr[m] for m in xarray.month.values]
     xarray.coords['season'] = xarray['time'].values[:,0]
     xarray.coords['month'] = Months
-    
-    
+
+
 ########
 #This function can be used to combine various data arrays into one
 def getFileList(filepath, yrs):
     '''
     The function `getFileList` can be used to extract files for any other time period. It takes the following inputs:
-    
+
     Inputs:
     filepath - refers to the file path of the folder containing the datasets to be used in calculations.
     yrs - is a numpy array containing a list of years of interest for calculations.
-      
+
     Outputs:
     Three lists: adv_list, ret_list, and sea_list which contain the list of files containing sea ice advance, retreat and total season duration respectively.
     '''
     #List netcdf files containing sea ice seasonality data
     filelist = sorted(glob(os.path.join(filepath, '*.nc')))
- 
+
     #Extract files for baseline years
     base = [f for f, y in zip(filelist*len(yrs), np.repeat(yrs, len(filelist))) if str(y) in f]
 
@@ -227,7 +227,7 @@ def getFileList(filepath, yrs):
     adv_list = sorted([f for f in np.unique(base) if 'Adv' in f])
     ret_list = sorted([f for f in np.unique(base) if 'Ret' in f])
     dur_list = sorted([f for f in np.unique(base) if 'Dur' in f])
-    
+
     #Return file lists
     return adv_list, ret_list, dur_list
 
@@ -240,25 +240,25 @@ def combineData(filelist, **kwargs):
     filelist - contains the file paths to the netcdf files that will be combined.
     Optional:
     dir_out - file path of the folder where combined data arrays will be saved
-      
+
     Outputs:
     Three dimensional data array containing all files provided in the filelist input. The data array is saved to the path provided in dir_out and it can also be assigned to a variable.
     '''
     #Create variable to hold combined data arrays
     combData = [xr.open_dataarray(f, autoclose = True) for f in filelist]
-        
+
     #Create one data array with the data contained in the combined variable
     combData = xr.concat(combData, dim = 'time')
-        
+
     if 'dir_out' in kwargs.keys():
         os.makedirs(kwargs.get('dir_out'), exist_ok = True)
-        #Get minimum and maximum years to name file 
+        #Get minimum and maximum years to name file
         minY = combData.time.dt.year.values.min()
         maxY = combData.time.dt.year.values.max()
         combData.to_netcdf(os.path.join(dir_out, f'{minY}-{maxY}.nc'))
 
     return combData
-    
+
 
 ########
 #This function creates a colour palette using Crameri's palettes (Crameri, F. (2018), Scientific colour-maps, Zenodo, doi:10.5281/zenodo.1243862)
@@ -268,7 +268,7 @@ def colourMaps(colourLibraryPath, palette, rev = True):
     colourLibraryPath - the file path where the palettes are currently saved.
     palette - name of the palette to be created.
     rev - Boolean. If True, it will create a normal and reversed version of the palette. If False, it will only return one palette
-    
+
     Outputs:
     One or two palettes based on Crameri (2018) that can be used to colour matplotlib figures
     '''
@@ -280,14 +280,14 @@ def colourMaps(colourLibraryPath, palette, rev = True):
     cm_data = np.loadtxt(os.path.join(colourLibraryPath, palette, (palette + '.txt')))
     #Create a colour map based on 'palette' argument
     pal_map_adv = LinearSegmentedColormap.from_list(palette, cm_data)
-        
+
     if rev == True:
         pal_map_ret = ListedColormap(cm_data[::-1])
         return pal_map_adv,pal_map_ret
     else:
         return pal_map_adv
-    
-    
+
+
 ########
 #This function performs a linear trend calculation and returns the coefficients as well as p-values for the linear regression
 def linearTrends(y, x, rsquared = False):
@@ -296,13 +296,13 @@ def linearTrends(y, x, rsquared = False):
     y - data array with information about dependent variable
     x - data array with information about independent variable
     rsquared - Boolean. If set to True then r squared values will be calculated and returned as outputs
-        
+
     Output:
     Coefficients and p-values of linear regression
     '''
     #To check extra information available in the model use
         #dir(model.fit())
-        
+
     if rsquared == True:
         model = sm.OLS(y, x)
         coef = model.fit().params[1]
@@ -315,7 +315,7 @@ def linearTrends(y, x, rsquared = False):
         sig = model.fit().pvalues[1]
         return coef, sig
 
-    
+
 ########
 #Defining function that will be applied across dimensions
 def lm_lats(arr, lats):
@@ -323,7 +323,7 @@ def lm_lats(arr, lats):
     Inputs:
     arr - data array containing the dependent and independent variables
     lats - list containing the latitudes for which we will calculate linear regressions
-        
+
     Output:
     Dataset containing the slope, intercept, p and r squared values, std error and predictions
     for the latitudes of interest
@@ -348,46 +348,46 @@ def lm_lats(arr, lats):
         p_val.append(r_lm.pvalue)
         stderr.append(r_lm.stderr)
         pred.append(r_lm.intercept+(r_lm.slope*sub_lat.time.dt.year))
-    
-    #Create a data array with predictions 
+
+    #Create a data array with predictions
     pred = xr.concat(pred, dim = 'yt_ocean')
     #and the rest of variables
-    slope = xr.DataArray(data = slope, name = 'slope', dims = ['yt_ocean'], 
+    slope = xr.DataArray(data = slope, name = 'slope', dims = ['yt_ocean'],
                  coords = dict(yt_ocean = arr.yt_ocean.values))
-    intercept = xr.DataArray(data = intercept, name = 'intercept', dims = ['yt_ocean'], 
+    intercept = xr.DataArray(data = intercept, name = 'intercept', dims = ['yt_ocean'],
                  coords = dict(yt_ocean = arr.yt_ocean.values))
-    p_val = xr.DataArray(data = p_val, name = 'p_val', dims = ['yt_ocean'], 
+    p_val = xr.DataArray(data = p_val, name = 'p_val', dims = ['yt_ocean'],
                  coords = dict(yt_ocean = arr.yt_ocean.values))
-    r_val = xr.DataArray(data = r_val, name = 'r_val', dims = ['yt_ocean'], 
+    r_val = xr.DataArray(data = r_val, name = 'r_val', dims = ['yt_ocean'],
                  coords = dict(yt_ocean = arr.yt_ocean.values))
-    stderr = xr.DataArray(data = stderr, name = 'stderr', dims = ['yt_ocean'], 
+    stderr = xr.DataArray(data = stderr, name = 'stderr', dims = ['yt_ocean'],
                  coords = dict(yt_ocean = arr.yt_ocean.values))
-    
+
     #Change names prior to creating final dataset
     pred.name = 'predictions'
     arr.name = 'model_data'
-    
+
     #Merge everything into one dataset
     ds = xr.merge([arr, pred, slope, intercept, r_val, p_val, stderr])
-    
-    return ds    
-    
+
+    return ds
+
 ########
-#This function calculates anomalies 
+#This function calculates anomalies
 def AnomCalc(array, clim_array, std_anom = False):
     '''
     Inputs:
     array - refers to a data array containing information for the period being compared to the baseline. It could include just one year or multiple years (decades)
     clim_array - three dimensional array containing data over the baseline period from which anomalies will be calculated
     std_anom - boolean variable that if set to True will result in standarised anomalies being calculated
-      
+
     Outputs:
     Data array containing anomalies.
     '''
-    
+
     #Calculate long term mean of array
     m_climarray = clim_array.mean('time')
-      
+
     #Calculate anomalies
     #Standarised anomalies
     if std_anom == True:
@@ -396,7 +396,7 @@ def AnomCalc(array, clim_array, std_anom = False):
     #Non-standarised anomalies
     elif std_anom == False:
         anom = array - m_climarray
-    
+
     #Return anomalies
     return anom
 
@@ -410,17 +410,17 @@ def colbarRange(dict_data, sector, season):
     sector - refers to a list of sectors
     season - refers to a list of seasons
     '''
-    
+
     #Define variables that will store the maximum and minimum values
     maxV = []
     minV = []
-    
+
     sector = sector*len(season)
     season = np.concatenate([[i]*len(sector) for i in season], axis = 0)
     for sec, sea in zip(sector, season):
         maxV.append(dict_data[f'{sec}_{sea}'].indexes['time'].year.max())
         minV.append(dict_data[f'{sec}_{sea}'].indexes['time'].year.min())
-        
+
     maxV = max(maxV)
     minV = min(minV)
 
@@ -432,24 +432,24 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
     '''
     The SeaIceAdvArrays was losely based on the `calc_ice_season` function from the `aceecostats` R package developed by Michael Sumner at AAD. This function calculates annual sea ice advance, retreat and total sea ice season duration as defined by Massom et al 2013 [DOI:10.1371/journal.pone.0064756].
     Briefly, if sea ice concentration in any pixel is at least 15% over five consecutive days, sea ice is considered to be advancing. Sea ice is retreating when its concentration is below 15% in any pixel until the end of the sea ice year. Sea ice season duration is the period between day of advance and retreat. Sea ice year is between February 15 and February 14 the following year.
-    
+
     Inputs:
     array is the data array on which sea ice seasonality calculations will be performed
     dir_out is the file path to the folder where outputs should be saved.
     thres refers to the minimum sea ice concentration threshold. The default is set to 0.15
     ndays is the minimum amount of consecutive days sea ice must be above threshold to be classified as advancing. Default set to 5
-    
+
     Outputs:
     Function saves three data arrays as netcdf files: advance, retreat and season duration. Data arrays can also be saved as variables in the notebook.
     '''
-    
-    #Extracting maximum and minimum year information to extract data for the sea ice year 
+
+    #Extracting maximum and minimum year information to extract data for the sea ice year
     MinY = str(array.time.dt.year.values.min())
     MaxY = str(array.time.dt.year.values.max())
-    
+
     #Selecting data between Feb 15 to Feb 14 (sea ice year)
     array = array.sel(time = slice(f'{MinY}-02-15', f'{MaxY}-02-14'))
-    
+
     ########
     #Preparing masks to perform calculations on areas of interest only
     #Calculate timesteps in dataset (365 or 366 depending on whether it was a leap year or not)
@@ -464,10 +464,10 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
     rsum = threshold.sum('time')
 
     #Boolean data arrays for masking
-    #If the total sum is zero, then set pixel to be True, otherwise set to False. 
+    #If the total sum is zero, then set pixel to be True, otherwise set to False.
     #This identifies pixels where minimum sea ice concentration was never reached.
     noIce = xr.where(rsum == 0, True, False)
-    #If the total sum is less than the minimum days, then set pixel to be True, otherwise set to False. 
+    #If the total sum is less than the minimum days, then set pixel to be True, otherwise set to False.
     #This identifies pixels where sea ice coverage did not meet the minimum consecutive days requirement.
     noIceAdv = xr.where(rsum < ndays, True, False)
     #If the total sum is the same as the timesteps, then set pixel to be True, otherwise set to False.
@@ -478,15 +478,15 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
 
     ########
     #Sea ice advance calculations
-    #Use cumulative sums based on time. If pixel has sea ice cover below threshold, 
+    #Use cumulative sums based on time. If pixel has sea ice cover below threshold,
     #then cumulative sum is reset to zero
     adv = threshold.cumsum(dim = 'time')-threshold.cumsum(dim = 'time').\
     where(threshold == 0).ffill(dim = 'time').fillna(0)
     #Note: ffill adds nan values forward over a specific dimension
 
-    #Find timestep (date) where the minimum consecutive sea ice concentration was first 
+    #Find timestep (date) where the minimum consecutive sea ice concentration was first
     #detected for each pixel
-    #Change all pixels that do not meet the minimum consecutive sea ice concentration to False. 
+    #Change all pixels that do not meet the minimum consecutive sea ice concentration to False.
     #Otherwise maintain their value.
     advDate = xr.where(adv == ndays, adv, False)
     #Find the time step index where condition above was met.
@@ -498,7 +498,7 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
 
     ########
     #Sea ice retreat calculations
-    #Reverse threshold data array (time wise) - So end date is now the start date and calculate 
+    #Reverse threshold data array (time wise) - So end date is now the start date and calculate
     #cumulative sum over time
     ret = threshold[::-1].cumsum('time')
     del threshold
@@ -512,13 +512,13 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
     retDate = retDate.where(noIce == False, np.nan).where(alwaysIce == False, timesteps)
     #Remove unused variables
     del ret
-    
+
     ########
     #Sea ice duration
     durDays = retDate-advDate
     #Remove unused variables
     del noIce, noIceAdv, alwaysIce
-    
+
     ########
     #Adding a time dimension to newly created arrays and removing unused dimensions
     def addTime(array, year):
@@ -528,32 +528,32 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
         x = array.expand_dims({'time': time}).assign_coords({'time': time})
         #Remove dimensions that are not needed
         x = x.drop('TLON').drop('TLAT').drop('ULON').drop('ULAT')
-        #Return 
+        #Return
         return x
-         
+
     #Applying function
     advDate2 = addTime(advDate, MinY)
     retDate2 = addTime(retDate, MinY)
     durDate = addTime(durDays, MinY)
     del advDate, retDate, durDays
-      
+
     ########
     #Save corrected outputs as netcdfiles
     if 'dir_out' in kwargs.keys():
         #Check output folder exists
         os.makedirs(kwargs.get('dir_out'), exist_ok = True)
-    
+
         #Define output paths
         advpath = os.path.join(dir_out, (f'SeaIceAdv_{MinY}-{MaxY}.nc'))
         retpath = os.path.join(dir_out, (f'SeaIceRet_{MinY}-{MaxY}.nc'))
         durpath = os.path.join(dir_out, (f'SeaIceDur_{MinY}-{MaxY}.nc'))
-    
+
         #Save files simultaneously
-        xr.save_mfdataset(datasets = [advDate2.to_dataset(), 
-                                      retDate2.to_dataset(), 
-                                      durDate.to_dataset()], 
+        xr.save_mfdataset(datasets = [advDate2.to_dataset(),
+                                      retDate2.to_dataset(),
+                                      durDate.to_dataset()],
                           paths = [advpath, retpath, durpath])
-    
+
     #Return data arrays as outputs
     return (advDate2, retDate2, durDate)
 
