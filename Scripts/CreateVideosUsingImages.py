@@ -2,9 +2,9 @@ import os
 import imageio
 
 #Set file path where images are located
-filein = r'C:\Users\ldfierro\OneDrive - University of Tasmania\ACCESS_Outputs\Figures\Maps\SeasonalSSTAnomaly\CycleComparisons'
+filein = r'C:\Users\ldfierro\OneDrive - University of Tasmania\ACCESS_Outputs\Figures\Maps\SeasonalSST\Cycle2'
 #Set the file path for the video to be save, include the name of the video and its extension
-fileout = os.path.join(filein, 'VideoSeasonalSSTAnomaly_CycleComp_1958-2018.gif')
+fileout = os.path.join(filein, 'VideoSeasonalSST_1958-2018.gif')
 
 #Get list of filepaths for all figures to be used in movie
 filenames = os.listdir(filein)

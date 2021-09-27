@@ -13,7 +13,7 @@ library(magrittr)
 
 # Setting up data into R --------------------------------------------------
 #Getting list of csv files
-filelist <- list.files(path = "Data/", pattern = ".csv$", full.names = T)[-5]
+filelist <- list.files(path = "Data/", pattern = "MLD.csv$", full.names = T)
 
 vars_int <- list()
 
@@ -72,15 +72,15 @@ for(i in seq_along(vars_int)){
       geom_point()+
       geom_line(col = "azure3")+
       # ylim(0, max(obs*1.5))+
-      geom_ribbon(data = data.confInt, aes(x = obs, ymin = lwr, ymax = upr), fill = "grey70", alpha = 0.4, 
-                  show.legend = F)+
+      # geom_ribbon(data = data.confInt, aes(x = obs, ymin = lwr, ymax = upr), fill = "grey70", alpha = 0.4, 
+      #             show.legend = F)+
       geom_line(data = data_SLA.LM, aes(x = obs, y = SLA, 
                                         colour = sprintf("Linear regression (LM), p-value = %.3f", coef_LM[2,4])))+
-      geom_line(data = data_SLA.MB_LM, aes(x = obs, y = SLA, 
-                                           colour = sprintf("Moving Block LM, p-value = %.3f", coef_LM_season[2,4])))+
-      geom_line(data = data_SLA.AR1, aes(x = obs, y = SLA, 
-                                         colour = sprintf("Autoregressive (AR1), p-value = %.3f", coeff_AR1[2,4])))+
-      geom_point(data = data_season, aes(x = obs, y = MLD), col = "chocolate1", show.legend = F)+
+      # geom_line(data = data_SLA.MB_LM, aes(x = obs, y = SLA, 
+      #                                      colour = sprintf("Moving Block LM, p-value = %.3f", coef_LM_season[2,4])))+
+      # geom_line(data = data_SLA.AR1, aes(x = obs, y = SLA, 
+      #                                    colour = sprintf("Autoregressive (AR1), p-value = %.3f", coeff_AR1[2,4])))+
+      # geom_point(data = data_season, aes(x = obs, y = MLD), col = "chocolate1", show.legend = F)+
       scale_color_manual(values = c("dodgerblue4", "chocolate1", "chartreuse"))+
       labs(x = "Timesteps", y = "Mixed layer depth (MLD, m)",
            caption = sprintf("Trend = %.2f m/year ± %.2f", coef_LM_season[2,1]*12, coef_LM_season[2,2]*12))+
