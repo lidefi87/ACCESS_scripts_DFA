@@ -226,9 +226,9 @@ def getFileList(filepath, yrs):
     base = [f for f, y in zip(filelist*len(yrs), np.repeat(yrs, len(filelist))) if str(y) in f]
 
     #Separate files based on whether they contain information about sea ice advance, retreat or season. Order them alphabetically.
-    adv_list = sorted([f for f in np.unique(base) if 'Adv' in f])
-    ret_list = sorted([f for f in np.unique(base) if 'Ret' in f])
-    dur_list = sorted([f for f in np.unique(base) if 'Dur' in f])
+    adv_list = sorted([f for f in np.unique(base) if 'adv' in f.lower()])
+    ret_list = sorted([f for f in np.unique(base) if 'ret' in f.lower()])
+    dur_list = sorted([f for f in np.unique(base) if 'dur' in f.lower()])
     
     #Return file lists
     return adv_list, ret_list, dur_list
@@ -317,6 +317,19 @@ def linearTrends(y, x, rsquared = False):
         sig = model.fit().pvalues[1]
         return coef, sig
 
+    
+########
+#This function performs a linear trend calculation and returns the coefficients as well as p-values for the linear regression
+def lm_yr(y, x):
+    '''
+    Inputs:
+    y - data array with information about dependent variable
+    x - data array with information about independent variable
+            
+    Output:
+    Coefficients and p-values of linear regression
+    '''
+    return ss.linregress(x, y)
     
 ########
 #Defining function that will be applied across dimensions
