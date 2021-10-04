@@ -559,9 +559,9 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
         os.makedirs(kwargs.get('dir_out'), exist_ok = True)
     
         #Define output paths
-        advpath = os.path.join(dir_out, (f'SeaIceAdv_{MinY}-{MaxY}.nc'))
-        retpath = os.path.join(dir_out, (f'SeaIceRet_{MinY}-{MaxY}.nc'))
-        durpath = os.path.join(dir_out, (f'SeaIceDur_{MinY}-{MaxY}.nc'))
+        advpath = os.path.join(kwargs.get('dir_out'), (f'SeaIceAdv_{MinY}-{MaxY}.nc'))
+        retpath = os.path.join(kwargs.get('dir_out'), (f'SeaIceRet_{MinY}-{MaxY}.nc'))
+        durpath = os.path.join(kwargs.get('dir_out'), (f'SeaIceDur_{MinY}-{MaxY}.nc'))
     
         #Save files simultaneously
         xr.save_mfdataset(datasets = [advDate2.to_dataset(), 
