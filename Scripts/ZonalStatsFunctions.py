@@ -608,6 +608,49 @@ def calculate_latlon_coords(da, source_crs, target_crs):
 
 
 ########
+#Calculating climatology
+def climCalc(da, clim_period, varname, clim_type = 'overall', **kwargs):
+    '''  
+    Inputs:
+    da - data array, containing information from which a climatology will be calculated
+    clim_period - list, time frame to be used in climatology calculation. Only start and end year are needed.
+    clim_type - str, what type of climatology needs to be calculated. Default is 'overall', also available
+        'seasonal' and 'monthly'.
+    Optional:
+    folder_out - str, containing file path to folder where results will be stored.
+   
+    Outputs:
+    clim - data array containing the calculated climatology
+    '''
+    
+    #Ensuring time period is a string
+    clim_period = [str(yr) for yr in clim_period]
+    
+    #Select data within climatology period
+    clim = da.sel(time = slice(*clim_period))
+
+    #Calculating climatology
+    if clim_type == 'overall':
+        clim = clim.mean('time')
+        fn = varname + f'_Climatology_overall_{clim_period[0]}-{clim_period[1]}.nc'
+    elif clim_type == 'seasonal':
+        clim = clim.groupby('time.season').mean('time')
+        fn = varname + f'_Climatology_seasonal_{clim_period[0]}-{clim_period[1]}.nc'
+    elif clim_type == 'monthly':
+        clim = clim.groupby('time.month').mean('time')
+        fn = varname + f'_Climatology_monthly_{clim_period[0]}-{clim_period[1]}.nc'
+ 
+    if 'folder_out' in kwargs.keys():
+        #Define output folder, where climatologies will be stored
+        out_folder = kwargs.get('folder_out')
+        #Ensure output folder exists
+        os.makedirs(out_folder, exist_ok = True)
+        #Saving results to disk
+        clim.to_netcdf(os.path.join(out_folder, fn))
+        
+    return clim
+
+########
 def main(inargs):
     '''Run the program.'''
 

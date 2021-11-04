@@ -1,6 +1,5 @@
 #Calling libraries
 import argparse
-import cosima_cookbook as cc
 import netCDF4 as nc
 import xarray as xr
 import numpy as np
@@ -8,39 +7,68 @@ import pandas as pd
 import copy
 import os
 import re
-import rasterio
-import geopandas
-import rasterio.plot
-import rioxarray
-from shapely.geometry import mapping, Polygon
 import calendar
 import statsmodels.api as sm
+from clef.code import *
+from glob import glob
 
 ########
 #Defining functions
 
 ########
-#Loads ACCESS-OM2-01 data for the Southern Ocean
-def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, exp = '01deg_jra55v140_iaf_cycle2'):
+#Search data within clef database
+def searchACCESS(var, model, freq, exp, **kwargs):
     '''
     Inputs:
-    var - Short name for the variable of interest
-    start - Time from when data has to be returned
-    end - Time until when data has to be returned
-    freq - Time frequency of the data
-    ses - Cookbook session
-    minlat - minimum latitude from which to return data. If not set, defaults to -90 to cover the Southern Ocean.
-    maxlat - maximum latitude from which to return data. If not set, defaults to -45 to cover the Southern Ocean.
-    exp - Experiment name
-        
-    Output:
-    Data array with corrected time and coordinates within the specified time period and spatial bounding box.
+    var - str, code for variable of interest used in CMIP6 models
+    model - str, CMIP6 model where variable of interest will be search
+    freq - str, requency of the data needed
+    
+    Optional inputs:
+    variant - str, experiment run to be search
+    time_frame - list, time period of interest given to the nearest decade 
+    (e.g., if interested in the period between 1991 and 2008, then use: [1990, 2000, 2010]
+    
+    Returns:
+    files - list, includes file paths for all datasets that meet search requirements
+    within the specified time period
     '''
-    #Accessing data
-    vararray = cc.querying.getvar(exp, var, ses, frequency = freq, start_time = start, end_time = end)
-    #Subsetting data to area of interest
-    vararray = vararray.sel(yt_ocean = slice(minlat, maxlat))
-    return vararray
+    
+    #Creating a session and connecting to database
+    db = connect()
+    s = Session()
+    
+    #Extract variables from kwargs
+    if 'variant' in kwargs.keys():
+        variant = kwargs.get('variant')
+    else:
+        variant = None
+    
+    #Creating dictionary to perform search using clef
+    search_dict = {'variable_id': var, 'model': model, 'frequency': freq, 
+              'experiment_id':exp, 'variant_label': variant}
+    df = search(s, project = 'CMIP6', latest = True, **search_dict)
+    
+    #If experiment runs (variants) need to be search, use the code below
+    # sorted([re.search('r[0-9]{,2}i[0-9]{,2}p[0-9]{,2}f[0-9]{,2}', 
+    #                   f).group() for f in df['path']])
+    
+    if 'time_frame' in kwargs.keys():
+        time_frame = kwargs.get('time_frame')
+        #Creating a file path list of all available datasets meeting search
+        #parameters
+        folder_path = [f for f in df['path'] if variant in f]
+        filenames = sorted(glob(os.path.join(folder_path[0], '*.nc')))
+    
+        #Subsetting list to select only files within the time period of interest
+        files = []
+        for yr in time_frame:
+            files.append([f for f in filenames if str(yr) in f][0])
+    
+    else:
+        files = [os.path.join(df['path'][0], list(df['filename'][0])[0])]
+    
+    return files
 
 ########
 #Correcting longitude values in a data array so they are between -180 and +180 degrees
@@ -73,121 +101,217 @@ def corrlong(array):
     return array
 
 ########
-#This function assigns the same coordinate reference system (CRS) to the data array being clipped as the clipping shapefile and then clips the data array
-def clipDataArray(array, shp, all_touched = False):
+#This function loads the data that was found to meet search requirements when the searchACCESS function was applied
+def loadData(filelist, var_name, SO = True, weights = False, **kwargs):
     '''
     Inputs:
-    array - Data array to be clipped.
-    shp - Shapefile to be used for clipping.
+    filelist - list, filepaths for variables of interest
+    var_name - str, code for variable of interest used in CMIP6 models
+    SO - boolean, if True it will return data frame for the Southern Ocean
+    weights - boolena, if True it will only return one time slice to be used as weights (e.g., area, volume, height) for calculating weighted statistics
     
-    Output:
-    Clipped data array.
+    Optional inputs:
+    years - list, years to be included in the data
+    months - list, must be a string with the start and end month as two digits
+    depth_range - list, including maximum and minimum depths to be selected
+        
+    Returns:
+    da - data frame, includes data for variable, time period and habitat of interest
     '''
-    #Set the spatial dimensions of the xarray being clipped
-    array.rio.set_spatial_dims(x_dim = 'longitude', y_dim = 'latitude', inplace = True) #inplace = True updates the array instead of creating a copy
-    #Assign a CRS to the xarray that matches the shapefile used for clipping. CRS included is CF compliant.
-    array.rio.write_crs(shp.crs, inplace = True) #inplace = True updates the array instead of creating a copy
     
-    #Clipping maintains only those pixels whose center is within the polygon boundaries and drops any data not meeting this requirement.
-    clipped = array.rio.clip(shp.geometry, shp.crs, drop = True, invert = False, all_touched = all_touched)
+    #Empty variable to store data frames
+    var = []
     
-    return clipped
+    if len(filelist) > 1:
+        #Looping through files and stacking them
+        for f in filelist:
+            var.append(xr.open_dataset(f, mask_and_scale = True))
+        #Concatenating files across time dimension
+        var = xr.concat(var, dim = 'time')
+    else:
+        var = xr.open_dataset(filelist[0], mask_and_scale = True)
+        if weights == True:
+            var = var[var_name][0]
+    
+    if 'years' in kwargs.keys() and 'months' in kwargs.keys():
+        years = kwargs.get('years')
+        months = kwargs.get('months')
+        #Selecting data for the time period of interest
+        s_time = f'{str(years[0])}-{str(months[0])}'
+        e_time = f'{str(years[-1])}-{str(months[-1])}'
+        
+        var = var[var_name].sel(time = slice(s_time, e_time))
+    
+    if 'depth_range' in kwargs.keys():
+        depths = kwargs.get('depth_range')
+        #Subsetting data based on depths of interest
+        var = var.sel(lev = slice(depths[0], depths[-1]))
+        
+    if type(var) == xr.core.dataset.Dataset:
+        var = var[var_name]
+        
+    #Apply latitude and longitude corrections
+    var = corrlong(var)
+    
+    if SO == True:
+        #Select the SO
+        var = var.sel(latitude = slice(-90, -30))
+    
+    #Return variable with variable of interest for specified time frame, depth and area
+    return var
+
+########
+#Creates a mask from a netcdf file that can be applied to a data array
+def creatingMask(mask_file):
+    '''
+    Inputs:
+    maskfile - str, filepath for the location of mask. Must be a netcdf file
+            
+    Returns:
+    mask_reg - data frame, to mask data
+    regionNames - list, containing names of regions within mask
+    '''
+    
+    #Loading mask
+    mask = xr.load_dataarray(mask_file)
+    
+    #Applying mask
+    #Getting region names from mask
+    regionNames = sorted(set(mask.region.values))
+
+    #Subsetting shapefiles into regions
+    #Initialise dictionary that will contain sector limits
+    mask_reg = {}
+
+    #Saving each sector as an entry in the dictionary
+    for reg in regionNames:
+        mask_reg[f"{reg}"] = mask.sel(region = reg)
+
+    return mask_reg, regionNames
 
 ########
 #Calculates weighted means by season, by month or per timestep
-def weightedMeans(array, weights, meanby = 'timestep'):
+def weightedMeans(regions, var_df, mask_df, weights):
     '''
     Inputs:
-    array - Data array containing variable from which means will be calculated
-    weights - Data array containing weights
-    meanby - Define how means will be calculate: timestep, month or season. Default set to 'timestep'
-    
-    Output:
-    Data array containing weighted means
+    regions - list, containing names of regions within mask
+    var_df - data frame, containing variables of interest
+    mask_df - data frame, to mask data
+    weights - data frame, containing weights to be applied to mean calculations
+            
+    Returns:
+    mean_calcs - data frame, containing weighted monthly means per sector
     '''
-      
-    #Calculate weights
-    weights = weights/weights.sum()
+    #Empty lists to save results
+    mean_calcs = []
+    
+    #For each region in mask perform calculation
+    for reg in regions:
+        #Apply mask to variable 
+        var_reg = var_df*mask_df[reg]
+        #Apply mask to volume data and replace NAs with zeroes prior to weighting data
+        weight_reg = weights*mask_df[reg]
+        weight_reg = weight_reg.fillna(0)
         
-    #Apply weights to variable - Calculate weighted mean over timestep and then calculate the mean by season
-    if meanby == 'season':
-        weighted_mean = (array*weights).groupby('time').sum(('longitude', 'latitude')).groupby('time.season').mean()
-    elif meanby == 'month':
-        weighted_mean = (array*weights).groupby('time').sum(('longitude', 'latitude')).groupby('time.month').mean()
-    elif meanby == 'timestep':
-        weighted_mean = (array*weights).groupby('time').sum(('longitude', 'latitude'))
+        #Calculate weighted means per sector
+        mean_weighted_var = var_reg.weighted(weight_reg).mean(('lev', 'latitude', 'longitude'))
+        #Save in empty list before concatenation
+        mean_calcs.append(mean_weighted_var)
+    
+    # Create one netcdf file per calculation and saving result
+    mean_calcs = xr.concat(mean_calcs, dim = 'region')
+    
+    return mean_calcs
+
+
+########
+#This function calculates weighted and unweighted standard deviations
+def std_dev(regions, var_df, mask_df, weights, weighted_means):
+    '''
+    Inputs:
+    regions - list, containing names of regions within mask
+    var_df - data frame, containing variables of interest
+    mask_df - data frame, to mask data
+    weights - data frame, containing weights to be applied to mean calculations
+    weighted_means - data frame, containing weighted means
+            
+    Returns:
+    un_std_calcs - data frame, containing unweighted monthly std dev per sector
+    w_std_calcs - data frame, containing weighted monthly std dev per sector
+    '''
+    
+    #Empty lists to save results
+    un_std_calcs = []
+    w_std_calcs = []
+    
+    #For each region in mask perform calculation
+    for reg in regions:
+        #Apply mask to variable 
+        var_reg = var_df*mask_df[reg]
+        #Apply mask to volume data and replace NAs with zeroes prior to weighting data
+        weight_reg = weights*mask_df[reg]
+        weight_reg = weight_reg.fillna(0)
         
-    return weighted_mean
+        #Calculating unweighted standard deviation
+        std_unweighted_var = var_reg.std(('lev', 'latitude', 'longitude'))
+        un_std_calcs.append(std_unweighted_var)
+        
+        #Calculating weighted standard deviation
+        #Calculate Bessel's correction for sample std (i.e., (n-1)/n)
+        bes_cor = ((weight_reg/weight_reg).sum()-1)/(weight_reg/weight_reg).sum()
+        #Divisor
+        divisor =  weight_reg.sum()*bes_cor
+        #Dividend
+        std = []
+        for t in var_reg.time:
+            dif = (weight_reg*((var_reg.sel(time = t)-weighted_means.sel(region = reg, 
+                                                                         time = t))**2)).sum(('lev',
+                                                                                              'latitude',
+                                                                                              'longitude'))
+            var = dif/divisor
+            std.append(np.sqrt(var.values))
+        std = xr.DataArray(std, dims = ['time'], coords = {'time': var_reg.time})
+        std = std.expand_dims({'region': [reg]})
+        w_std_calcs.append(std)
+    
+    # Create one netcdf file per calculation and saving result
+    un_std_calcs = xr.concat(un_std_calcs, dim = 'region')
+    w_std_calcs = xr.concat(w_std_calcs, dim = 'region')
+    
+    return un_std_calcs, w_std_calcs
+
 
 ########
-#This function adds a time dimension containing the year of sampling in an array containing summarised data. It must be specified is the data is summarised by season or per month
-def addTimeYear(array, year, by = 'season'):
+#This function calculates percentiles
+def perc_calc(regions, var_df, mask_df, percentiles):
     '''
     Inputs:
-    array - Data array to which a time dimension containing the year of sampling will be added to an array that contains four timesteps, one per season
-    year - A string containing the year that will be added as a time dimension
-    by - A string describing if data array is group by months (monthly), or per season (season). Default set to season
-    
-    Output:
-    Data array with a time dimension containing the year of sampling
+    regions - list, containing names of regions within mask
+    var_df - data frame, containing variables of interest
+    mask_df - data frame, to mask data
+    percentiles - list, percentiles that need to be calculated
+            
+    Returns:
+    per_calcs - data frame, containing monthly percentiles per sector
     '''
-    if not isinstance(year, str):
-        year = str(year)
-    
-    if by == 'season':
-        #Create a time variable to add as a coordinate to each array
-        time = [year]*4
-        #Add time coordinate to data array
-        x = array.assign_coords(time = ('season', time))
-    elif by == 'month':
-        time = [year]*12
-        #Add time coordinate to data array
-        x = array.assign_coords(time = ('month', time))
-    
-    #Return data array with the time dimension
-    return x
+    #Empty lists to save results
+    per_calcs = []
 
-########
-#This function access all netcdf files that are contained in one folder and have a particular keyword in their name
-def stackData(folder, keyword):
-    '''
-    Inputs:
-    folder - The location of the folder where all netcdf files to be concatenated are located
-    keyword - String containing a keyword that will be used to identify all files to be concatenated.
+    #For each region in mask perform calculation
+    for reg in regions:
+        #Apply mask to variable 
+        var_reg = var_df*mask_df[reg]
+        
+        #Calculate percentiles per sector
+        perc_var = var_reg.quantile(percentiles, ('lev', 'latitude', 'longitude'))
+        perc_var = perc_var.expand_dims({'region': [reg]})
+        #Save in empty list before concatenation
+        per_calcs.append(perc_var)
     
-    Output:
-    Concatenated data array
-    '''
+    #Create one netcdf file per calculation and saving result
+    per_calcs = xr.concat(per_calcs, dim = 'region')
     
-    if not isinstance(keyword, str):
-        print('Keyword argument must be a string.')
-    
-    #Get a list files that contain the keyword provided and order them alphabetically
-    filelist = sorted(list(filter(re.compile('.*' + keyword + '.*').match, os.listdir(folder))))
-    
-    #Create an empty list that will contain calculations for every year
-    combData = []
-
-    #Loop for every year included in the analysis
-    for i in np.arange(0, len(filelist)):
-        #Read file
-        x = xr.open_dataarray(os.path.join(folder, filelist[i]))
-        combData.append(x)
-
-    #Concatenate all items included in the list created in the loop to create one data array per sector
-    comb_data = xr.concat(combData, dim = 'season')
-
-    #Return concatenated data array
-    return comb_data
-
-
-########
-#This function corrects year values
-def corrYears(xarray):
-    Months = [calendar.month_abbr[m] for m in xarray.month.values]
-    xarray.coords['season'] = xarray['time'].values[:,0]
-    xarray.coords['month'] = Months
-    
+    return per_calcs
     
 ########
 #This function can be used to combine various data arrays into one
