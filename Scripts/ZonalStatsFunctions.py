@@ -57,7 +57,10 @@ def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45,
         vararray.coords['nj'] = geolon_t['yt_ocean'].values
         #Rename coordinate variables so they match ocean data
         vararray = vararray.rename(({'ni':'xt_ocean', 'nj':'yt_ocean'}))
-    
+        #Drop coordinates that are no longer needed
+        vararray = vararray.drop(('TLON', 'TLAT', 'ULON', 'ULAT'))
+        #Drop attribute that is not needed
+        del vararray.attrs['time_bounds']
     #Subsetting data to area of interest
     vararray = vararray.sel(yt_ocean = slice(minlat, maxlat))
     return vararray
