@@ -19,7 +19,7 @@ import datetime as dt
 import scipy.stats as ss
 from glob import glob
 import xesmf as xe
-import pyproj
+from pyproj import Transformer, CRS, transform, Proj
 
 ########
 #Defining functions
@@ -29,6 +29,14 @@ import pyproj
 def getACCESSdata(var, start, end, freq, ses, minlat = -90, maxlat = -45, 
                   exp = '01deg_jra55v140_iaf_cycle2', ice_data = False):
     '''
+    Defining function that loads data automatically using `cc.querying.getvar()` in a loop. The inputs needed are similar to those for the `cc.querying.getvar()` function, with the addition of inputs to define an area of interest.  
+The `getACCESSdata` will achieve the following:  
+- Access data for the experiment and variable of interest at the frequency requested and within the time frame specified  
+- Apply **time corrections** as midnight (00:00:00) is interpreted differently by the CICE model and the xarray package.
+    - CICE reads *2010-01-01 00:00:00* as the start of 2010-01-01, while xarray interprets it as the start of the following day (2010-01-02). To fix this problem, 12 hours are subtracted from the time dimension (also known as *time coordinate*).  
+- Latitude and longitude will be corrected in the dataset using the `geolon_t` dataset. The coordinate names are replaced by names that are more intuitive.  
+- Minimum and maximum latitudes and longitudes can be specified in the function to access specific areas of the dataset if required.  The **Southern Ocean** is defined as ocean waters south of 45S.
+
     Inputs:
     var - Short name for the variable of interest
     start - Time from when data has to be returned
@@ -590,10 +598,41 @@ def calculate_latlon_coords(da, source_crs, target_crs):
     X, Y = np.meshgrid(da.x, da.y)
     
     # Use proj to create a transformation from the source coordinates to lat/lon
-    transformer = pyproj.Transformer.from_crs(source_crs, target_crs)
+    trans = Transformer.from_crs(source_crs, target_crs)
     
     # Convert the 2d coordinates from the source to the target values
-    lat, lon = transformer.transform(X, Y)
+    lat, lon = trans.transform(X, Y)
+    
+    # Add the coordinates to the dataset
+    da.coords['lat'] = (('y','x'), lat)
+    da.coords['lon'] = (('y','x'), lon)
+    
+    # And add standard metadata so the lat and lon get picked up by xesmf
+    da.coords['lat'].attrs['units'] = 'degrees_north'
+    da.coords['lon'].attrs['units'] = 'degrees_east'
+    da.coords['lat'].attrs['axis'] = 'Y'
+    da.coords['lon'].attrs['axis'] = 'X'
+    da.coords['lat'].attrs['standard_name'] = 'latitude'
+    da.coords['lon'].attrs['standard_name'] = 'longitude'
+    
+    return da
+
+
+########
+#Calculate the lat-lon coordinates from a dataset in source_crs - Function by Scott Wales
+def reproject_latlon_coords(da, source_crs, target_crs):
+    '''
+    Inputs:
+    da - refers to a data array that needs to be reprojected. Dimensions containing spatial data should be labelled as x and y.
+    source_crs - original CRS for data array spatial information. Should be provided as a string in the form of 'epsg:4326'.
+    target_crs - CRS to which the data array will be transformed. Should be provided as a string in the form of 'epsg:4326'.
+    '''
+    
+    # Convert the 1d coordinates to 2d arrays covering the whole grid
+    X, Y = np.meshgrid(da.x, da.y)
+       
+    # Convert the 2d coordinates from the source to the target values
+    lon, lat = transform(Proj(init = source_crs), Proj(init = target_crs), X, Y)
     
     # Add the coordinates to the dataset
     da.coords['lat'] = (('y','x'), lat)
