@@ -133,7 +133,6 @@ dmypy.json
 
 #Images
 *.tiff
-.Rproj.user
 *.nc
 
 #R related files
@@ -141,3 +140,9 @@ dmypy.json
 *.Rhistory
 .RData
 .Ruserdata
+
+#Matlab files
+*.mat
+
+#VSCode files
+.vscode

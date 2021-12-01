@@ -1,6 +1,0 @@
-#!/bin/bash
-#PBS -P v45
-#PBS -q normal
-#PBS -l walltime=8:00:00,ncpus=12
-#PBS -l wd
-./SeaIcePlots.ipynb
