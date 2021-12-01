@@ -143,9 +143,12 @@ def loadData(filelist, var_name, SO = True, weights = False, **kwargs):
         var = var[var_name].sel(time = slice(s_time, e_time))
     
     if 'depth_range' in kwargs.keys():
-        depths = kwargs.get('depth_range')
-        #Subsetting data based on depths of interest
-        var = var.sel(lev = slice(depths[0], depths[-1]))
+        if 'lev' in var.coords:
+            depths = kwargs.get('depth_range')
+            #Subsetting data based on depths of interest
+            var = var.sel(lev = slice(depths[0], depths[-1]))
+        else:
+            var = var
         
     if type(var) == xr.core.dataset.Dataset:
         var = var[var_name]
@@ -214,7 +217,10 @@ def weightedMeans(regions, var_df, mask_df, weights):
         weight_reg = weight_reg.fillna(0)
         
         #Calculate weighted means per sector
-        mean_weighted_var = var_reg.weighted(weight_reg).mean(('lev', 'latitude', 'longitude'))
+        if 'lev' in var_df.coords:
+            mean_weighted_var = var_reg.weighted(weight_reg).mean(('lev', 'latitude', 'longitude'))
+        else:
+            mean_weighted_var = var_reg.weighted(weight_reg).mean(('latitude', 'longitude'))
         #Save in empty list before concatenation
         mean_calcs.append(mean_weighted_var)
     
@@ -253,7 +259,10 @@ def std_dev(regions, var_df, mask_df, weights, weighted_means):
         weight_reg = weight_reg.fillna(0)
         
         #Calculating unweighted standard deviation
-        std_unweighted_var = var_reg.std(('lev', 'latitude', 'longitude'))
+        if 'lev' in var_df.coords:
+            std_unweighted_var = var_reg.std(('lev', 'latitude', 'longitude'))
+        else:
+            std_unweighted_var = var_reg.std(('latitude', 'longitude'))
         un_std_calcs.append(std_unweighted_var)
         
         #Calculating weighted standard deviation
@@ -264,10 +273,10 @@ def std_dev(regions, var_df, mask_df, weights, weighted_means):
         #Dividend
         std = []
         for t in var_reg.time:
-            dif = (weight_reg*((var_reg.sel(time = t)-weighted_means.sel(region = reg, 
-                                                                         time = t))**2)).sum(('lev',
-                                                                                              'latitude',
-                                                                                              'longitude'))
+            if 'lev' in var_df.coords:
+                dif = (weight_reg*((var_reg.sel(time = t)-weighted_means.sel(region = reg, time = t))**2)).sum(('lev',                                  'latitude', 'longitude'))
+            else:
+                dif = (weight_reg*((var_reg.sel(time = t)-weighted_means.sel(region = reg, time = t))**2)).sum(('latitude', 'longitude'))
             var = dif/divisor
             std.append(np.sqrt(var.values))
         std = xr.DataArray(std, dims = ['time'], coords = {'time': var_reg.time})
@@ -303,7 +312,10 @@ def perc_calc(regions, var_df, mask_df, percentiles):
         var_reg = var_df*mask_df[reg]
         
         #Calculate percentiles per sector
-        perc_var = var_reg.quantile(percentiles, ('lev', 'latitude', 'longitude'))
+        if 'lev' in var_df.coords:
+            perc_var = var_reg.quantile(percentiles, ('lev', 'latitude', 'longitude'))
+        else:
+            perc_var = var_reg.quantile(percentiles, ('latitude', 'longitude'))
         perc_var = perc_var.expand_dims({'region': [reg]})
         #Save in empty list before concatenation
         per_calcs.append(perc_var)
