@@ -553,7 +553,7 @@ def SeaIceAdvArrays(array, thres = 0.15, ndays = 5, **kwargs):
         #Add time dimension to data array
         x = array.expand_dims({'time': time}).assign_coords({'time': time})
         #Remove dimensions that are not needed
-        x = x.drop('TLON').drop('TLAT').drop('ULON').drop('ULAT')
+        #x = x.drop('TLON').drop('TLAT').drop('ULON').drop('ULAT')
         #Return 
         return x
          
